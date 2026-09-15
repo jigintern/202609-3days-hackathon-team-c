@@ -1,17 +1,13 @@
 import * as THREE from 'three';
 import './styles/main.css';
 import { TitleScene } from './scenes/TitleScene.js';
-import { MailInputScene } from './scenes/MailInputScene.js';
-import { HowToPlayScene } from './scenes/HowToPlayScene.js';
 import { GameScene } from './scenes/GameScene.js';
 import { ResultScene } from './scenes/ResultScene.js';
 
 // 画面遷移の状態。文字列定数で管理するシンプルなステートマシン
-// TITLE →「スタート」→ MAIL_INPUT →「ゲーム開始」→ GAME という流れ
+// TITLE（タイトル表示とメール本文の入力を兼ねる）→「スタート」→ GAME という流れ
 const SCREEN = {
   TITLE: 'TITLE',
-  MAIL_INPUT: 'MAIL_INPUT',
-  HOWTO: 'HOWTO',
   GAME: 'GAME',
   RESULT: 'RESULT',
 };
@@ -22,6 +18,9 @@ class App {
     this.overlayRoot = document.getElementById('overlay-root');
     this.currentScene = null;
     this.currentScreen = null;
+    // 直前に遊んだメール本文。タイトルへ戻ったときの入力欄の復元と、
+    // リザルトの「もう一度」で同じ文面を積み直すために画面をまたいで保持する
+    this.mailText = '';
 
     // 画面をまたいで使い回す唯一のWebGLRenderer。画面ごとに作り直すとcanvasの
     // コンテキストが競合するため、ここで一度だけ生成する
@@ -37,20 +36,8 @@ class App {
         canvas: this.canvas,
         renderer: this.renderer,
         overlayRoot: this.overlayRoot,
-        onStart: () => this.goTo(SCREEN.MAIL_INPUT),
-        onShowHowTo: () => this.goTo(SCREEN.HOWTO),
-      }),
-      [SCREEN.MAIL_INPUT]: new MailInputScene({
-        canvas: this.canvas,
-        renderer: this.renderer,
-        overlayRoot: this.overlayRoot,
         // 入力されたメール本文をGAME画面へ渡す。ブロック生成はGameScene側の責務
-        onStartGame: (mailText) => this.goTo(SCREEN.GAME, { mailText }),
-        onBack: () => this.goTo(SCREEN.TITLE),
-      }),
-      [SCREEN.HOWTO]: new HowToPlayScene({
-        overlayRoot: this.overlayRoot,
-        onSkip: () => this.goTo(SCREEN.GAME),
+        onStart: (mailText) => this.goTo(SCREEN.GAME, { mailText }),
       }),
       [SCREEN.GAME]: new GameScene({
         canvas: this.canvas,
@@ -78,9 +65,15 @@ class App {
       this.scenes[SCREEN.RESULT].setScore(payload.score ?? 0);
     }
     if (screen === SCREEN.GAME) {
-      // MAIL_INPUTを経由しなかった場合（遊び方からのスキップ等）はnullとなり、
-      // GameScene側で従来のランダム文面フォールバックに切り替わる
-      this.scenes[SCREEN.GAME].setMailText(payload.mailText ?? null);
+      // 「もう一度」のようにペイロードなしで来た場合も、直前と同じ文面で遊べるようにする。
+      // 一度も入力されていなければ空文字のままで、GameScene側が
+      // ランダム文面フォールバックに切り替わる
+      this.mailText = payload.mailText ?? this.mailText;
+      this.scenes[SCREEN.GAME].setMailText(this.mailText);
+    }
+    if (screen === SCREEN.TITLE) {
+      // 貼り直さずにもう一度遊べるよう、直前の本文を入力欄へ書き戻す
+      this.scenes[SCREEN.TITLE].setMailText(this.mailText);
     }
 
     this.currentScreen = screen;
