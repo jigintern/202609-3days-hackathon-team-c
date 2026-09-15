@@ -2,14 +2,12 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from '../game/PhysicsWorld.js';
 import { Ball } from '../game/Ball.js';
-import { Block } from '../game/Block.js';
+import { Block, createCharacterTexture } from '../game/Block.js';
 import { AimController } from '../game/AimController.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
 
 const TOTAL_BALLS = 8;
-const BLOCK_ROWS = 4;
-const BLOCK_COLS = 2;
 const SCORE_PER_BLOCK = 100;
 const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
 const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケースの保険
@@ -36,6 +34,9 @@ export class GameScene {
     this.hasEnded = false;
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
     this.mailText = null;
+    // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
+    // ブロック単位で破棄すると他のブロックの文字まで消えるため、unmount()でまとめて破棄する
+    this.characterTextures = new Map();
   }
 
   // MailInputScene.onStartGame(mailText) から main.js を通じて渡される入力文字列を受け取る。
@@ -50,6 +51,7 @@ export class GameScene {
     this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
     this.activeBall = null;
+    this.characterTextures = new Map();
 
     this.canvas.style.display = 'block';
 
@@ -81,6 +83,10 @@ export class GameScene {
 
     this.blocks.forEach((block) => block.dispose());
     if (this.activeBall) this.activeBall.dispose();
+
+    // ブロック間で共有している文字テクスチャはここでまとめて破棄する
+    this.characterTextures.forEach((texture) => texture.dispose());
+    this.characterTextures.clear();
 
     this.canvas.style.display = 'none';
   }
@@ -134,48 +140,50 @@ export class GameScene {
     const blockWidth = 1.6;
     const blockHeight = 0.95;
 
-    // メール本文が渡されていれば「1文字=1ブロック」で組む。
-    // 改行や空白（全角スペース含む）は見た目上のブロックにしても意味がないため、
-    // \s+ で丸ごと取り除いてから文字ごとに分割する。長すぎる入力はMAX_MAIL_BLOCKS件までに
-    // 切り詰めてタワーが発散しないようにしている（このあたりの挙動はREADME参照）。
-    const characters = this.mailText
-      ? this.mailText.replace(/\s+/g, '').slice(0, MAX_MAIL_BLOCKS).split('')
-      : null;
+    const characters = this._buildCharacters();
+    const cols = Math.max(1, Math.ceil(Math.sqrt(characters.length)));
 
-    if (characters && characters.length > 0) {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(characters.length)));
-      characters.forEach((character, index) => {
-        const row = Math.floor(index / cols);
-        const col = index % cols;
-        this._spawnBlock(character, row, col, cols, blockWidth, blockHeight);
-      });
-      return;
-    }
-
-    // メール本文が渡されなかった場合（遊び方からのスキップ等）は、
-    // これまで通りランダムな文面でブロックタワーを作る
-    for (let row = 0; row < BLOCK_ROWS; row += 1) {
-      for (let col = 0; col < BLOCK_COLS; col += 1) {
-        this._spawnBlock(
-          getRandomEmailText(),
-          row,
-          col,
-          BLOCK_COLS,
-          blockWidth,
-          blockHeight
-        );
-      }
-    }
+    characters.forEach((character, index) => {
+      const row = Math.floor(index / cols);
+      const col = index % cols;
+      this._spawnBlock(character, row, col, cols, blockWidth, blockHeight);
+    });
   }
 
-  _spawnBlock(labelText, row, col, cols, blockWidth, blockHeight) {
+  // タワーに積む文字の配列を作る。「1文字=1ブロック」の組み方をここ1箇所に集約し、
+  // メール本文が渡されなかった場合（遊び方からゲームへ直行した場合など）も
+  // ランダムな文面を同じ手順で1文字ずつに分解する。
+  // 改行や空白（全角スペース含む）はブロックにしても意味がないため \s+ で取り除き、
+  // サロゲートペア（絵文字など）を割らないよう Array.from で分割する。
+  // 長すぎる入力は MAX_MAIL_BLOCKS 件までに切り詰めてタワーが発散しないようにしている。
+  _buildCharacters() {
+    const normalized = (this.mailText ?? '').replace(/\s+/g, '');
+    // 空白だけの入力でブロックが0個になると開始直後にゲームが終わってしまうため、
+    // 正規化した結果が空ならランダム文面に退避する
+    const source =
+      normalized.length > 0
+        ? normalized
+        : getRandomEmailText().replace(/\s+/g, '');
+    return Array.from(source).slice(0, MAX_MAIL_BLOCKS);
+  }
+
+  // 同じ文字は同じテクスチャを使い回す。24ブロック分を毎回描き直す必要はなく、
+  // 「の」「ご」のように頻出する文字ほど効く
+  _getCharacterTexture(character) {
+    let texture = this.characterTextures.get(character);
+    if (!texture) {
+      texture = createCharacterTexture(character);
+      this.characterTextures.set(character, texture);
+    }
+    return texture;
+  }
+
+  _spawnBlock(character, row, col, cols, blockWidth, blockHeight) {
     const block = new Block(
       this.physicsWorld,
       this.material,
-      labelText,
-      this.overlayRoot
+      this._getCharacterTexture(character)
     );
-    block.mesh.material.color.setHex(row % 2 === 0 ? 0xf2f2f2 : 0xe4e6f5);
     this.scene.add(block.mesh);
 
     const x = (col - (cols - 1) / 2) * blockWidth;
@@ -218,12 +226,6 @@ export class GameScene {
 
     this.blocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
-
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    this.blocks.forEach((block) =>
-      block.updateLabelPosition(this.camera, width, height)
-    );
 
     this._resolveBrokenBlocks();
     this._resolveActiveBall(deltaSeconds);
