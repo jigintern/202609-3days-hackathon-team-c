@@ -1,18 +1,18 @@
 import * as THREE from 'three';
 import { clamp } from '../utils/helpers.js';
-import { BLOCK_SIZE } from './Block.js';
+import { GAME_BLOCK_SIZE } from './Block.js';
 
 // 壁の組み方とカメラ・発射地点の距離をまとめて決める計算モジュール。
 // 「何文字を何列に積むか」「どこから投げるか」「カメラをどこに置くか」は互いに依存するので、
 // GameSceneに散らさずここ1箇所に集約している。
 
 // 横は実寸より少し広く取って隣との隙間を作る。横方向の隙間は積み上げに影響しない
-export const BLOCK_SPACING_X = BLOCK_SIZE.x * 1.14;
+export const BLOCK_SPACING_X = GAME_BLOCK_SIZE.x * 1.14;
 // 縦は実寸ちょうど。ここに隙間を空けると、段ごとの落下が積み重なって壁が自重で自壊する
 // （間隔を6%広げただけで20段目の落下速度が5.85m/sに達し、Block.jsの自壊閾値5.1を超えた）。
 // 段の区切りはブロック面に焼かれた罫線（Block.jsのFRAME_INSET_RATIO）で見えるので、
 // 物理的な隙間は不要
-export const BLOCK_SPACING_Y = BLOCK_SIZE.y;
+export const BLOCK_SPACING_Y = GAME_BLOCK_SIZE.y;
 
 export const CAMERA_FOV_DEG = 50;
 // 壁の周囲に確保する余白。1.0だと壁が画面ぴったりになって窮屈なので少し引く
@@ -41,7 +41,7 @@ export function fitDistance(widthMeters, heightMeters, aspect) {
 }
 
 export function wallWidth(cols) {
-  return (cols - 1) * BLOCK_SPACING_X + BLOCK_SIZE.x;
+  return (cols - 1) * BLOCK_SPACING_X + GAME_BLOCK_SIZE.x;
 }
 
 export function wallHeight(rows) {

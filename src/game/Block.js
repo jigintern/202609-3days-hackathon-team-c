@@ -1,12 +1,19 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
-// ブロックの実寸。元は (1.4, 0.9, 1) だったものを一律1.6倍している。
+// ブロックの実寸。タイトル画面の背景（TitleBackground）も同じ値を使うので、
+// ここを変えるとゲーム画面と背景の両方のブロックの大きさが変わる
+export const BLOCK_SIZE = new THREE.Vector3(1.4, 0.9, 1);
+
+// ゲーム画面のブロックだけ、この倍率で拡大して使う。
 // 壁が大きいほど遠くから投げることになり、重力に対して世界が大きくなるぶん滞空時間が伸びて、
-// 放物線と崩落がよく見えるようになる（見かけの大きさは距離も比例して伸びるので変わらない）。
-// ここを変えるなら StageLayout の配置間隔とテクスチャの縦横比も連動する
-export const BLOCK_SIZE = new THREE.Vector3(2.24, 1.44, 1.6);
-const SIZE = BLOCK_SIZE;
+// 放物線と崩落がよく見えるようになる（距離も比例して伸びるので画面上の見かけは変わらない）。
+// タイトル背景は自前のカメラ位置で構図が調整されているため、拡大の対象にしていない。
+// ここを変えるなら StageLayout の配置間隔と Block.js の衝突閾値も連動する
+export const GAME_BLOCK_SCALE = 1.6;
+export const GAME_BLOCK_SIZE = BLOCK_SIZE.clone().multiplyScalar(
+  GAME_BLOCK_SCALE
+);
 const HIT_DURABILITY = 2; // 何回衝突判定を受けたら壊れるか
 // 衝突とみなす速度。世界を1.6倍にすると同じ見た目の動きでも速度が√1.6≒1.27倍になるため、
 // 元の値(1.5 / 4)をその比率で補正している
@@ -19,8 +26,9 @@ const BLOCK_IMPACT_SPEED = 5.1;
 // ブロック同士の衝突は連鎖が過剰にならないよう一律1のままにしている
 const BALL_DAMAGE_PER_SPEED = 19;
 
-// 文字を焼き込むテクスチャの解像度。ブロックの手前面(2.24 x 1.44)と同じ縦横比にして、
-// 貼り付けたときに文字が横へ潰れないようにしている
+// 文字を焼き込むテクスチャの解像度。ブロックの手前面(1.4 x 0.9)と同じ縦横比にして、
+// 貼り付けたときに文字が横へ潰れないようにしている。
+// GAME_BLOCK_SCALE は縦横を同じ倍率で拡大するので、この比率には影響しない
 const TEXTURE_WIDTH = 448;
 const TEXTURE_HEIGHT = 288;
 // 面の内側に引く罫線の余白。1文字=1ブロックの区切りを目で追えるようにするためのもの
@@ -80,6 +88,29 @@ export function createCharacterTexture(character) {
   return texture;
 }
 
+// ブロック6面ぶんのマテリアルを作る。BoxGeometryのマテリアル配列は
+// [+X, -X, +Y, -Y, +Z, -Z] の順で、プレイヤーに向く手前(+Z)と背面(-Z)にだけ
+// 文字を貼り、残り4面は紙の断面色にする。
+// タイトル画面の背景のブロックも同じ見た目にするため、ここを共用している
+export function createBlockMaterials(characterTexture) {
+  const faceMaterial = new THREE.MeshStandardMaterial({
+    map: characterTexture,
+    roughness: 0.85,
+  });
+  const sideMaterial = new THREE.MeshStandardMaterial({
+    color: SIDE_COLOR,
+    roughness: 0.9,
+  });
+  return [
+    sideMaterial,
+    sideMaterial,
+    sideMaterial,
+    sideMaterial,
+    faceMaterial,
+    faceMaterial,
+  ];
+}
+
 // メール本文の1文字を表すブロック。耐久値が尽きるとシーンから消える
 export class Block {
   constructor(physicsWorld, material, characterTexture) {
@@ -87,32 +118,24 @@ export class Block {
     this.durability = HIT_DURABILITY;
     this.isDestroyed = false;
 
-    const geometry = new THREE.BoxGeometry(SIZE.x, SIZE.y, SIZE.z);
-    const faceMaterial = new THREE.MeshStandardMaterial({
-      map: characterTexture,
-      roughness: 0.85,
-    });
-    const sideMaterial = new THREE.MeshStandardMaterial({
-      color: SIDE_COLOR,
-      roughness: 0.9,
-    });
-    // BoxGeometryのマテリアル配列は [+X, -X, +Y, -Y, +Z, -Z] の順。
-    // プレイヤーに向く手前(+Z)と背面(-Z)にだけ文字を貼り、残り4面は断面色にする
-    this.mesh = new THREE.Mesh(geometry, [
-      sideMaterial,
-      sideMaterial,
-      sideMaterial,
-      sideMaterial,
-      faceMaterial,
-      faceMaterial,
-    ]);
+    // ゲーム画面側は拡大した寸法を使う（タイトル背景は素の BLOCK_SIZE のまま）
+    const geometry = new THREE.BoxGeometry(
+      GAME_BLOCK_SIZE.x,
+      GAME_BLOCK_SIZE.y,
+      GAME_BLOCK_SIZE.z
+    );
+    this.mesh = new THREE.Mesh(geometry, createBlockMaterials(characterTexture));
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
 
     this.body = new CANNON.Body({
       mass: 1.5,
       shape: new CANNON.Box(
-        new CANNON.Vec3(SIZE.x / 2, SIZE.y / 2, SIZE.z / 2)
+        new CANNON.Vec3(
+          GAME_BLOCK_SIZE.x / 2,
+          GAME_BLOCK_SIZE.y / 2,
+          GAME_BLOCK_SIZE.z / 2
+        )
       ),
       material,
     });

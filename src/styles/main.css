@@ -278,24 +278,6 @@ body {
   background: rgba(255, 210, 63, 0.5);
 }
 
-/* ブロックの文面ラベル（3D座標をスクリーン座標に投影して追従させる） */
-
-
-/* タイトル/メール入力画面の背景レンガに表示するダミー1文字ラベル。
-   背景を透明にし、文字色＋濃い縁取りでレンガとのコントラストを確保する */
-.brick-label {
-  position: absolute;
-  z-index: 1;
-  transform: translate(-50%, -50%);
-  font-size: 1.15rem;
-  font-weight: 900;
-  color: #fff6e6;
-  text-shadow:
-    0 0 4px rgba(0, 0, 0, 0.85),
-    1px 1px 0 rgba(0, 0, 0, 0.6);
-  pointer-events: none;
-}
-
 /* メール本文入力画面 */
 .mail-input-panel {
   width: min(90vw, 560px);
