@@ -16,8 +16,9 @@ const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
 export class GameScene {
-  constructor({ canvas, overlayRoot, onGameOver }) {
+  constructor({ canvas, renderer, overlayRoot, onGameOver }) {
     this.canvas = canvas;
+    this.renderer = renderer;
     this.overlayRoot = overlayRoot;
     this.onGameOver = onGameOver;
 
@@ -83,15 +84,6 @@ export class GameScene {
     this.camera.position.set(0, 9, 14);
     this.camera.lookAt(0, 2, 0);
 
-    // リトライのたびにWebGLコンテキストを作り直さないよう、rendererは使い回す
-    if (!this.renderer) {
-      this.renderer = new THREE.WebGLRenderer({
-        canvas: this.canvas,
-        antialias: true,
-      });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      this.renderer.shadowMap.enabled = true;
-    }
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);

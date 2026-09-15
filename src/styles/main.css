@@ -46,11 +46,40 @@ body {
   display: flex;
 }
 
+/* タイトル画面のように背後の3D演出を見せたい画面は、全画面オーバーレイを外して
+   テキスト周りだけの半透明パネルに絞る */
+.screen-transparent {
+  background: transparent;
+}
+
+.title-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 40px 56px;
+  border-radius: 20px;
+  background: rgba(10, 12, 24, 0.55);
+  backdrop-filter: blur(2px);
+}
+
 .screen h1 {
   font-size: 2.4rem;
   margin: 0;
   letter-spacing: 0.05em;
   text-shadow: 0 0 12px rgba(255, 90, 90, 0.6);
+}
+
+/* タイトルロゴ: 黄色地に紺の縁取り、下方向の影＋軽い発光 */
+.title-panel h1 {
+  font-family: 'Arial Black', 'Impact', 'Hiragino Sans', sans-serif;
+  font-weight: 900;
+  color: #ffd400;
+  -webkit-text-stroke: 3px #0b1440;
+  paint-order: stroke fill;
+  text-shadow:
+    3px 5px 0 rgba(0, 0, 0, 0.6),
+    0 0 18px rgba(255, 212, 0, 0.55);
 }
 
 .screen p {
@@ -84,6 +113,33 @@ body {
 .btn-secondary {
   background: linear-gradient(180deg, #4a5568, #2d3341);
   box-shadow: 0 4px 0 #1a1e26;
+}
+
+/* STARTボタン: 白文字＋青背景。ホバーで光り、待機中は控えめに点滅する */
+#btn-start {
+  background: linear-gradient(180deg, #4b8bff, #1d4ed8);
+  box-shadow: 0 4px 0 #123a8f;
+  font-weight: bold;
+  animation: btn-start-blink 1.8s ease-in-out infinite;
+}
+
+#btn-start:hover {
+  animation: none;
+  box-shadow: 0 4px 0 #123a8f, 0 0 20px 4px rgba(75, 139, 255, 0.75);
+}
+
+#btn-start:active {
+  box-shadow: 0 1px 0 #123a8f;
+}
+
+@keyframes btn-start-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 /* ゲーム画面のHUD */

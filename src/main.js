@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import './styles/main.css';
 import { TitleScene } from './scenes/TitleScene.js';
 import { HowToPlayScene } from './scenes/HowToPlayScene.js';
@@ -19,8 +20,19 @@ class App {
     this.currentScene = null;
     this.currentScreen = null;
 
+    // 画面をまたいで使い回す唯一のWebGLRenderer。画面ごとに作り直すとcanvasの
+    // コンテキストが競合するため、ここで一度だけ生成する
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvas,
+      antialias: true,
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+
     this.scenes = {
       [SCREEN.TITLE]: new TitleScene({
+        canvas: this.canvas,
+        renderer: this.renderer,
         overlayRoot: this.overlayRoot,
         onStart: () => this.goTo(SCREEN.GAME),
         onShowHowTo: () => this.goTo(SCREEN.HOWTO),
@@ -31,6 +43,7 @@ class App {
       }),
       [SCREEN.GAME]: new GameScene({
         canvas: this.canvas,
+        renderer: this.renderer,
         overlayRoot: this.overlayRoot,
         onGameOver: (score) => this.goTo(SCREEN.RESULT, { score }),
       }),
