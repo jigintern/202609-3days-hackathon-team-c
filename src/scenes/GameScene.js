@@ -61,7 +61,7 @@ export class GameScene {
   }
 
   // MailInputScene.onStartGame(mailText) から main.js を通じて渡される入力文字列を受け取る。
-  // mount()より前に呼ばれる想定（ResultScene.setScoreと同じ使い方）
+  // mount()より前にsetterで値を渡すパターン
   setMailText(mailText) {
     this.mailText = mailText;
   }

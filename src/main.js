@@ -4,7 +4,6 @@ import { TitleScene } from './scenes/TitleScene.js';
 import { MailInputScene } from './scenes/MailInputScene.js';
 import { HowToPlayScene } from './scenes/HowToPlayScene.js';
 import { GameScene } from './scenes/GameScene.js';
-import { ResultScene } from './scenes/ResultScene.js';
 
 // 画面遷移の状態。文字列定数で管理するシンプルなステートマシン
 // TITLE →「スタート」→ MAIL_INPUT →「ゲーム開始」→ GAME という流れ
@@ -13,7 +12,6 @@ const SCREEN = {
   MAIL_INPUT: 'MAIL_INPUT',
   HOWTO: 'HOWTO',
   GAME: 'GAME',
-  RESULT: 'RESULT',
 };
 
 class App {
@@ -58,11 +56,6 @@ class App {
         overlayRoot: this.overlayRoot,
         onBackToTitle: () => this.goTo(SCREEN.TITLE),
       }),
-      [SCREEN.RESULT]: new ResultScene({
-        overlayRoot: this.overlayRoot,
-        onRetry: () => this.goTo(SCREEN.GAME),
-        onBackToTitle: () => this.goTo(SCREEN.TITLE),
-      }),
     };
 
     this._lastTime = performance.now();
@@ -74,9 +67,6 @@ class App {
       this.currentScene.unmount();
     }
 
-    if (screen === SCREEN.RESULT) {
-      this.scenes[SCREEN.RESULT].setScore(payload.score ?? 0);
-    }
     if (screen === SCREEN.GAME) {
       // MAIL_INPUTを経由しなかった場合（遊び方からのスキップ等）はnullとなり、
       // GameScene側で従来のランダム文面フォールバックに切り替わる
