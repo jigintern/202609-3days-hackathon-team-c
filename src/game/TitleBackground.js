@@ -25,12 +25,6 @@ const PEDESTAL_TOP_Y = PEDESTAL_SIZE.y;
 const BRICK_SPAWN_X_RANGE = [-3.5, 3.5];
 const BRICK_SPAWN_Z_RANGE = [-1.5, 1.5];
 
-const PADDLE_SIZE = new THREE.Vector3(2.6, 0.4, 0.6);
-const PADDLE_POSITION_Y = 0.5;
-const PADDLE_POSITION_Z = 5.5;
-const PADDLE_RANGE = 3.5;
-const PADDLE_SPEED = 0.7; // 往復の速さ（ラジアン/秒相当）
-
 // タイトル/メール入力画面の背景で、鉄球がレンガの山へ延々と飛び込み続けるアトラクトモード演出。
 // 青空と芝生でゲーム本編と統一感のある明るい屋外の雰囲気にする。
 export class TitleBackground {
@@ -86,18 +80,6 @@ export class TitleBackground {
     this.pedestalMesh.position.set(0, PEDESTAL_SIZE.y / 2, 0);
     this.scene.add(this.pedestalMesh);
 
-    // 左右に少しだけ揺れ動くパドル（見た目だけのブロック崩し風演出）
-    const paddleGeometry = new THREE.BoxGeometry(
-      PADDLE_SIZE.x,
-      PADDLE_SIZE.y,
-      PADDLE_SIZE.z
-    );
-    const paddleMaterial = new THREE.MeshStandardMaterial({ color: 0xf4f6ff });
-    this.paddleMesh = new THREE.Mesh(paddleGeometry, paddleMaterial);
-    this.paddleMesh.position.set(0, PADDLE_POSITION_Y, PADDLE_POSITION_Z);
-    this.scene.add(this.paddleMesh);
-    this._paddleTime = 0;
-
     this.physicsWorld = new PhysicsWorld();
     this.material = this.physicsWorld.defaultMaterial;
 
@@ -136,8 +118,6 @@ export class TitleBackground {
     this.balls.forEach((item) => this._disposeItem(item));
     this.bricks = [];
     this.balls = [];
-    this.paddleMesh.geometry.dispose();
-    this.paddleMesh.material.dispose();
     this.pedestalMesh.geometry.dispose();
     this.pedestalMesh.material.dispose();
     this.grassMesh.geometry.dispose();
@@ -146,10 +126,6 @@ export class TitleBackground {
   }
 
   update(deltaSeconds) {
-    this._paddleTime += deltaSeconds;
-    this.paddleMesh.position.x =
-      Math.sin(this._paddleTime * PADDLE_SPEED) * PADDLE_RANGE;
-
     this._brickTimer += deltaSeconds;
     this._ballTimer += deltaSeconds;
 
