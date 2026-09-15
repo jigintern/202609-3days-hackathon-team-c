@@ -73,6 +73,14 @@ const FOG_FAR = 50;
 // 語を増やすときはここへ足すだけでよい
 const BOMB_WORDS = ['選考'];
 
+// 爆弾ブロックが壊れたときの爆風。半径内の動的なボディを外向きに押すだけで、
+// ブロックを直接壊しはしない（壊れるかどうかは通常どおり衝突判定に委ねる）。
+// ブロックの質量は1.5なので、中心の力積14はおよそ9.3m/sの初速にあたる。
+// ブロック同士が壊れ合う閾値（Block.BLOCK_IMPACT_SPEED = 4）を超える強さ。
+// 物足りない/強すぎる場合はまずこの2つを動かす
+const EXPLOSION_RADIUS = 4.0;
+const EXPLOSION_IMPULSE = 14;
+
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
@@ -482,12 +490,39 @@ export class GameScene {
     this.fallingBlocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
 
+    this._resolveBombs();
     this._resolveFallenBlocks();
     this._resolveLandedBlocks();
     this._resolveActiveBall(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // 球が当たった爆弾を爆発させる。爆弾自身はその場で消え、棒から落ちたときと
+  // 同じように加点する。ブロックが壊れる仕組みは無いので、爆風は周囲のブロックを
+  // 棒から吹き飛ばして落とすことで効いてくる
+  _resolveBombs() {
+    const remaining = [];
+    const origins = [];
+
+    this.blocks.forEach((block) => {
+      if (!block.hitByBall) {
+        remaining.push(block);
+        return;
+      }
+      origins.push(block.body.position.clone());
+      this.score += SCORE_PER_BLOCK;
+      this.hud.setScore(this.score);
+      this.scene.remove(block.mesh);
+      block.dispose();
+    });
+
+    if (origins.length === 0) return;
+
+    this.blocks = remaining;
+    // 爆風は爆弾を取り除いたあとに当てる。自分自身を吹き飛ばそうとしないため
+    origins.forEach((origin) => this._explode(origin));
   }
 
   // 棒より下へ落ちたブロックを見つけて加点する。ブロックは壊れないので、
@@ -515,6 +550,36 @@ export class GameScene {
     }
 
     this.blocks = remaining;
+  }
+
+  // 爆心から半径内にある動的なボディ（ブロックと、飛んでいる球の両方）を
+  // 外向きに吹き飛ばす。力は距離に応じて線形に弱まり、外周でゼロになる。
+  // 間に何があるかは見ていない（遮蔽判定は入れていない）。
+  //
+  // 爆弾の引き金は球との衝突だけなので、この爆風が他の爆弾を誘爆させることはない。
+  // ただし爆風で弾かれた球が別の爆弾に当たれば、そちらは普通に爆発する
+  _explode(origin) {
+    const targets = [...this.blocks, this.activeBall].filter(Boolean);
+
+    targets.forEach((target) => {
+      const { body } = target;
+      const offset = new CANNON.Vec3(
+        body.position.x - origin.x,
+        body.position.y - origin.y,
+        body.position.z - origin.z
+      );
+      const distance = offset.length();
+      if (distance > EXPLOSION_RADIUS) return;
+
+      // 爆心とまったく同じ位置にいると向きが決まらないので、その時だけ真上へ逃がす
+      const direction =
+        distance > 1e-4 ? offset.scale(1 / distance) : new CANNON.Vec3(0, 1, 0);
+      const strength = EXPLOSION_IMPULSE * (1 - distance / EXPLOSION_RADIUS);
+
+      // スリープ中のブロックは力を加えても起きないので先に起こす
+      body.wakeUp();
+      body.applyImpulse(direction.scale(strength));
+    });
   }
 
   // 回収用の床まで落ちたブロックを破棄する。床のcollideイベントが主で、
