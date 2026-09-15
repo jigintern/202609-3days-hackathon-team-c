@@ -258,6 +258,13 @@ export class GameScene {
         survivors.push(block);
       }
     });
+
+    // 落ち着いたタワーはcannon-esのスリープに入っていて、下のブロックが消えても
+    // 目を覚まさず宙に浮いたままになる。壊れたぶんだけ残りを起こして自然に崩落させる
+    if (survivors.length !== this.blocks.length) {
+      survivors.forEach((block) => block.body.wakeUp());
+    }
+
     this.blocks = survivors;
   }
 

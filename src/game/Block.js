@@ -3,6 +3,10 @@ import * as CANNON from 'cannon-es';
 
 const SIZE = new THREE.Vector3(1.4, 0.9, 1);
 const HIT_DURABILITY = 2; // 何回衝突判定を受けたら壊れるか
+const BALL_IMPACT_SPEED = 1.5; // ボールが当たったとみなす衝突速度
+// 崩れ落ちてきたブロックに潰されたとみなす衝突速度。タワーが自重で落ち着くときの
+// 接触（実測で最大2.5程度）で自壊しないよう、ボールより高い値を要求する
+const BLOCK_IMPACT_SPEED = 4;
 
 // お祈り/落選メール1通を表すブロック。耐久値が尽きるとシーンから消える
 export class Block {
@@ -25,12 +29,15 @@ export class Block {
       material,
     });
 
-    // 耐久値はボールとの衝突でのみ減らす（ブロック同士や床との接触では減らさない）。
-    // 速度の大きい衝突のみカウントして誤爆を防ぐ
+    // 耐久値はボール、または支えを失って落ちてきた他のブロックとの強い衝突で減らす。
+    // 床のような静的（mass 0）なものとの接触では減らさない
     this.body.addEventListener('collide', (event) => {
-      if (!event.body.isBall) return;
-      const impactSpeed = event.contact.getImpactVelocityAlongNormal();
-      if (Math.abs(impactSpeed) > 1.5) {
+      if (event.body.mass <= 0) return;
+      const impactSpeed = Math.abs(event.contact.getImpactVelocityAlongNormal());
+      const threshold = event.body.isBall
+        ? BALL_IMPACT_SPEED
+        : BLOCK_IMPACT_SPEED;
+      if (impactSpeed > threshold) {
         this.durability -= 1;
       }
     });
