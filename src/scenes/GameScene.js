@@ -14,9 +14,11 @@ const SCORE_PER_BLOCK = 100;
 const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
 const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケースの保険
 const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
+
 // メール本文からブロックタワーを組む際の文字数上限（タワーが発散しないための目安。
 // 見た目やカメラ位置に合わせて調整可）
 const MAX_MAIL_BLOCKS = 24;
+
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
