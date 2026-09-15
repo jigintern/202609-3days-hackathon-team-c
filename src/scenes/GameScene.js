@@ -69,6 +69,10 @@ const CAMERA_FRAME_PADDING = 1.3;
 const FOG_NEAR = 35;
 const FOG_FAR = 50;
 
+// 本文中にこれらの語が含まれていたら、その文字のブロックを爆弾にする。
+// 語を増やすときはここへ足すだけでよい
+const BOMB_WORDS = ['選考'];
+
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
@@ -285,11 +289,50 @@ export class GameScene {
   // 壁そのものの組み方（行・列）は床に積んでいた頃と同じで、
   // 積み始める高さが棒の上面になった点だけが違う
   _setupWall() {
+    const bombFlags = this._markBombs(this.rows);
     this.rows.forEach((rowChars, row) => {
       rowChars.forEach((character, col) => {
-        this._spawnBlock(character, row, col);
+        this._spawnBlock(character, row, col, bombFlags[row][col]);
       });
     });
+  }
+
+  // どの位置のブロックを爆弾にするかを、rowsと同じ形のboolean配列で返す。
+  //
+  // 行に分割し終えた文字を平坦に並べ直してから語を探している。こうすると
+  // 元の本文で間にスペースが入っていた場合（空白は行分割の時点で除去済み）も、
+  // 折り返しや改行で語が行をまたいだ場合も、同じように拾える。
+  // 行をまたいだときは離れた位置の2ブロックがそれぞれ爆弾になる。
+  //
+  // 結合した文字列に対する indexOf ではなく要素単位で比較しているのは、
+  // サロゲートペア（絵文字など）で文字列上の位置と要素の添字がずれるため。
+  // 右端を埋めている空白ブロック('')は語の一部にならないので探索から外す
+  _markBombs(rows) {
+    const flat = rows.flat();
+    const flags = flat.map(() => false);
+
+    const chars = [];
+    const flatIndexes = [];
+    flat.forEach((character, index) => {
+      if (character.length === 0) return;
+      chars.push(character);
+      flatIndexes.push(index);
+    });
+
+    BOMB_WORDS.forEach((word) => {
+      const wordChars = Array.from(word);
+      if (wordChars.length === 0) return;
+      for (let i = 0; i + wordChars.length <= chars.length; i += 1) {
+        if (!wordChars.every((char, k) => chars[i + k] === char)) continue;
+        wordChars.forEach((_, k) => {
+          flags[flatIndexes[i + k]] = true;
+        });
+        i += wordChars.length - 1;
+      }
+    });
+
+    let cursor = 0;
+    return rows.map((row) => row.map(() => flags[cursor++]));
   }
 
   // 壁に積む行（文字の配列の配列）を作る。「1文字=1ブロック」の組み方を
@@ -355,20 +398,24 @@ export class GameScene {
 
   // 同じ文字は同じテクスチャを使い回す。ブロック数ぶん毎回描き直す必要はなく、
   // 「の」「ご」のように頻出する文字ほど効く
-  _getCharacterTexture(character) {
-    let texture = this.characterTextures.get(character);
+  _getCharacterTexture(character, isBomb) {
+    // 同じ文字でも爆弾かどうかで配色が違う。文字だけをキーにすると、
+    // 先に作られた方の色がもう一方にも使い回されてしまうので種別を混ぜる
+    const key = `${isBomb ? 'bomb' : 'normal'}:${character}`;
+    let texture = this.characterTextures.get(key);
     if (!texture) {
-      texture = createCharacterTexture(character);
-      this.characterTextures.set(character, texture);
+      texture = createCharacterTexture(character, { isBomb });
+      this.characterTextures.set(key, texture);
     }
     return texture;
   }
 
-  _spawnBlock(character, row, col) {
+  _spawnBlock(character, row, col, isBomb) {
     const block = new Block(
       this.physicsWorld,
       this.material,
-      this._getCharacterTexture(character)
+      this._getCharacterTexture(character, isBomb),
+      { isBomb }
     );
     this.scene.add(block.mesh);
 
