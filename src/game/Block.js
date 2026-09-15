@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
-const SIZE = new THREE.Vector3(1.4, 0.9, 1);
+// ブロックの実寸。タイトル画面の背景（TitleBackground）も同じ値を使うので、
+// ここを変えるとゲーム画面と背景の両方のブロックの大きさが変わる
+export const BLOCK_SIZE = new THREE.Vector3(1.4, 0.9, 1);
 const HIT_DURABILITY = 2; // 何回衝突判定を受けたら壊れるか
 const BALL_IMPACT_SPEED = 1.5; // ボールが当たったとみなす衝突速度
 // 崩れ落ちてきたブロックに潰されたとみなす衝突速度。タワーが自重で落ち着くときの
@@ -69,6 +71,29 @@ export function createCharacterTexture(character) {
   return texture;
 }
 
+// ブロック6面ぶんのマテリアルを作る。BoxGeometryのマテリアル配列は
+// [+X, -X, +Y, -Y, +Z, -Z] の順で、プレイヤーに向く手前(+Z)と背面(-Z)にだけ
+// 文字を貼り、残り4面は紙の断面色にする。
+// タイトル画面の背景のブロックも同じ見た目にするため、ここを共用している
+export function createBlockMaterials(characterTexture) {
+  const faceMaterial = new THREE.MeshStandardMaterial({
+    map: characterTexture,
+    roughness: 0.85,
+  });
+  const sideMaterial = new THREE.MeshStandardMaterial({
+    color: SIDE_COLOR,
+    roughness: 0.9,
+  });
+  return [
+    sideMaterial,
+    sideMaterial,
+    sideMaterial,
+    sideMaterial,
+    faceMaterial,
+    faceMaterial,
+  ];
+}
+
 // メール本文の1文字を表すブロック。耐久値が尽きるとシーンから消える
 export class Block {
   constructor(physicsWorld, material, characterTexture) {
@@ -76,32 +101,19 @@ export class Block {
     this.durability = HIT_DURABILITY;
     this.isDestroyed = false;
 
-    const geometry = new THREE.BoxGeometry(SIZE.x, SIZE.y, SIZE.z);
-    const faceMaterial = new THREE.MeshStandardMaterial({
-      map: characterTexture,
-      roughness: 0.85,
-    });
-    const sideMaterial = new THREE.MeshStandardMaterial({
-      color: SIDE_COLOR,
-      roughness: 0.9,
-    });
-    // BoxGeometryのマテリアル配列は [+X, -X, +Y, -Y, +Z, -Z] の順。
-    // プレイヤーに向く手前(+Z)と背面(-Z)にだけ文字を貼り、残り4面は断面色にする
-    this.mesh = new THREE.Mesh(geometry, [
-      sideMaterial,
-      sideMaterial,
-      sideMaterial,
-      sideMaterial,
-      faceMaterial,
-      faceMaterial,
-    ]);
+    const geometry = new THREE.BoxGeometry(
+      BLOCK_SIZE.x,
+      BLOCK_SIZE.y,
+      BLOCK_SIZE.z
+    );
+    this.mesh = new THREE.Mesh(geometry, createBlockMaterials(characterTexture));
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
 
     this.body = new CANNON.Body({
       mass: 1.5,
       shape: new CANNON.Box(
-        new CANNON.Vec3(SIZE.x / 2, SIZE.y / 2, SIZE.z / 2)
+        new CANNON.Vec3(BLOCK_SIZE.x / 2, BLOCK_SIZE.y / 2, BLOCK_SIZE.z / 2)
       ),
       material,
     });
