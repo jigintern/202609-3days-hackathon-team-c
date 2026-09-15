@@ -6,6 +6,7 @@ import { Block, createCharacterTexture } from '../game/Block.js';
 import { Bar, BAR_TOP_Y, BAR_Y } from '../game/Bar.js';
 import { AimController } from '../game/AimController.js';
 import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
+import { ExplosionEffect } from '../game/ExplosionEffect.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
 import { soundManager } from '../audio/SoundManager.js';
@@ -154,6 +155,7 @@ export class GameScene {
       (direction, power) => this._launchBall(direction, power)
     );
     this.trajectoryPreview = new TrajectoryPreview(this.scene);
+    this.explosionEffect = new ExplosionEffect(this.scene);
 
     this._onResize = this._onResize.bind(this);
     window.addEventListener('resize', this._onResize);
@@ -163,6 +165,7 @@ export class GameScene {
     window.removeEventListener('resize', this._onResize);
     this.aimController.dispose();
     this.trajectoryPreview.dispose();
+    this.explosionEffect.dispose();
     this.hud.hide();
     this.hud.root.remove();
 
@@ -494,6 +497,7 @@ export class GameScene {
     this._resolveFallenBlocks();
     this._resolveLandedBlocks();
     this._resolveActiveBall(deltaSeconds);
+    this.explosionEffect.update(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
@@ -559,6 +563,8 @@ export class GameScene {
   // 爆弾の引き金は球との衝突だけなので、この爆風が他の爆弾を誘爆させることはない。
   // ただし爆風で弾かれた球が別の爆弾に当たれば、そちらは普通に爆発する
   _explode(origin) {
+    this.explosionEffect.spawnAt(origin, EXPLOSION_RADIUS);
+
     const targets = [...this.blocks, this.activeBall].filter(Boolean);
 
     targets.forEach((target) => {
