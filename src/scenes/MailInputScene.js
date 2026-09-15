@@ -2,7 +2,7 @@ import { TitleBackground } from '../game/TitleBackground.js';
 
 // 入力欄が発散しないよう、ゲーム側に渡す文章の長さの目安をここで決めておく
 // （GameScene側のMAX_MAIL_BLOCKSと合わせて、両方で二重に上限をかけている）
-const MAX_MAIL_LENGTH = 200;
+const MAX_MAIL_LENGTH = 100;
 
 // メール本文入力画面。「1文字=1ブロック」としてゲーム側が使う文章を受け取るだけの画面。
 // ブロックの生成・配置は一切ここでは行わず、入力された文字列をそのまま
