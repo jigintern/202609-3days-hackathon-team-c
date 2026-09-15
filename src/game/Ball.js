@@ -1,11 +1,35 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { clamp } from '../utils/helpers.js';
+import { GRAVITY_Y } from './PhysicsWorld.js';
+import { clamp, lerp } from '../utils/helpers.js';
 
-const RADIUS = 0.35;
-export const MAX_LAUNCH_SPEED = 26;
+// ブロックと同じく世界のスケールに合わせて1.6倍にしてある（元は0.35）。
+// ここだけ据え置くと壁に対して豆粒になり、当たり判定も相対的に狭くなる
+const RADIUS = 0.56;
 
-// 鉄球。生成した瞬間は静止しており、launch()で狙った方向へパワーに応じた速度を与える
+// 発射距離から「使える速度の範囲」を求める。
+// 距離が変われば届く速度も変わるので、固定値ではなく毎回ここで計算する。
+// - 下限: 仰角45度の山なりで壁の根元にぎりぎり届く速度（これ未満はどう撃っても絶対に届かない）
+// - 上限: ほぼ水平に撃って壁の根元に届く速度（これ以上速くしても直線的になるだけ）
+// 低い仰角と低い威力を同時に選ぶと届かない組み合わせが残るが、それは物理的に避けられない。
+// 指を離す前に軌道プレビューの点線で分かるようにしてある
+export function launchSpeedRange(distance, launchHeight) {
+  const gravity = Math.abs(GRAVITY_Y);
+  const reachWithLob = Math.sqrt(
+    (gravity * distance * distance) / (launchHeight + distance)
+  );
+  const reachWithFlatShot = Math.sqrt(
+    (gravity * distance * distance) / (2 * launchHeight)
+  );
+  return { min: reachWithLob * 1.2, max: reachWithFlatShot * 1.1 };
+}
+
+// powerRatio(0〜1)を実際の速度に変換する
+export function speedFromPowerRatio(speedRange, powerRatio) {
+  return lerp(speedRange.min, speedRange.max, clamp(powerRatio, 0, 1));
+}
+
+// 鉄球。生成した瞬間は静止しており、launch()で狙った方向へ指定の速度を与える
 export class Ball {
   constructor(physicsWorld, material) {
     this.physicsWorld = physicsWorld;
@@ -39,9 +63,8 @@ export class Ball {
     this.physicsWorld.addBody(this.body);
   }
 
-  // direction: THREE.Vector3（正規化済み想定）, powerPercent: 0〜100
-  launch(direction, powerPercent) {
-    const speed = (clamp(powerPercent, 0, 100) / 100) * MAX_LAUNCH_SPEED;
+  // direction: THREE.Vector3（正規化済み想定）, speed: m/s
+  launch(direction, speed) {
     this.body.velocity.set(
       direction.x * speed,
       direction.y * speed,

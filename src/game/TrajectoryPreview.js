@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { GRAVITY_Y } from './PhysicsWorld.js';
-import { MAX_LAUNCH_SPEED } from './Ball.js';
 
-const SAMPLE_COUNT = 30;
-const MAX_TIME_SECONDS = 2.5;
+const SAMPLE_COUNT = 40;
+// 世界を1.6倍にしたぶん滞空時間も伸びるので、山なりの弾道が最後まで描けるよう長めに取る
+const MAX_TIME_SECONDS = 4;
 
 // エイム中（ドラッグ中）に、実際の重力に沿った放物線の予測線を表示する
 export class TrajectoryPreview {
@@ -15,10 +15,11 @@ export class TrajectoryPreview {
       'position',
       new THREE.BufferAttribute(new Float32Array(SAMPLE_COUNT * 3), 3)
     );
+    // 破線の間隔も世界のスケールに合わせて1.6倍にしてある（元は0.25 / 0.15）
     const material = new THREE.LineDashedMaterial({
       color: 0xffcc33,
-      dashSize: 0.25,
-      gapSize: 0.15,
+      dashSize: 0.4,
+      gapSize: 0.24,
     });
     this.line = new THREE.Line(geometry, material);
     this.line.visible = false;
@@ -34,9 +35,9 @@ export class TrajectoryPreview {
     this.line.visible = false;
   }
 
-  // origin: THREE.Vector3, direction: THREE.Vector3（正規化済み）, powerPercent: 0〜100
-  update(origin, direction, powerPercent) {
-    const speed = (powerPercent / 100) * MAX_LAUNCH_SPEED;
+  // origin: THREE.Vector3, direction: THREE.Vector3（正規化済み）, speed: m/s。
+  // 実際の発射と同じ速度を受け取るので、点線が示す着弾点と結果が必ず一致する
+  update(origin, direction, speed) {
     const positions = this.line.geometry.attributes.position.array;
 
     for (let i = 0; i < SAMPLE_COUNT; i += 1) {

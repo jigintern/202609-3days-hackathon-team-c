@@ -1,14 +1,25 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
-const SIZE = new THREE.Vector3(1.4, 0.9, 1);
+// ブロックの実寸。元は (1.4, 0.9, 1) だったものを一律1.6倍している。
+// 壁が大きいほど遠くから投げることになり、重力に対して世界が大きくなるぶん滞空時間が伸びて、
+// 放物線と崩落がよく見えるようになる（見かけの大きさは距離も比例して伸びるので変わらない）。
+// ここを変えるなら StageLayout の配置間隔とテクスチャの縦横比も連動する
+export const BLOCK_SIZE = new THREE.Vector3(2.24, 1.44, 1.6);
+const SIZE = BLOCK_SIZE;
 const HIT_DURABILITY = 2; // 何回衝突判定を受けたら壊れるか
-const BALL_IMPACT_SPEED = 1.5; // ボールが当たったとみなす衝突速度
+// 衝突とみなす速度。世界を1.6倍にすると同じ見た目の動きでも速度が√1.6≒1.27倍になるため、
+// 元の値(1.5 / 4)をその比率で補正している
+const BALL_IMPACT_SPEED = 1.9; // ボールが当たったとみなす衝突速度
 // 崩れ落ちてきたブロックに潰されたとみなす衝突速度。タワーが自重で落ち着くときの
-// 接触（実測で最大2.5程度）で自壊しないよう、ボールより高い値を要求する
-const BLOCK_IMPACT_SPEED = 4;
+// 接触で自壊しないよう、ボールより高い値を要求する
+const BLOCK_IMPACT_SPEED = 5.1;
+// ボールの衝突だけは速度に比例してダメージが増える。この速度ごとに耐久を1削るので、
+// 19以上で耐久2のブロックを一撃、38以上なら貫通しながら次のブロックも削れる。
+// ブロック同士の衝突は連鎖が過剰にならないよう一律1のままにしている
+const BALL_DAMAGE_PER_SPEED = 19;
 
-// 文字を焼き込むテクスチャの解像度。ブロックの手前面(1.4 x 0.9)と同じ縦横比にして、
+// 文字を焼き込むテクスチャの解像度。ブロックの手前面(2.24 x 1.44)と同じ縦横比にして、
 // 貼り付けたときに文字が横へ潰れないようにしている
 const TEXTURE_WIDTH = 448;
 const TEXTURE_HEIGHT = 288;
@@ -111,12 +122,15 @@ export class Block {
     this.body.addEventListener('collide', (event) => {
       if (event.body.mass <= 0) return;
       const impactSpeed = Math.abs(event.contact.getImpactVelocityAlongNormal());
-      const threshold = event.body.isBall
-        ? BALL_IMPACT_SPEED
-        : BLOCK_IMPACT_SPEED;
-      if (impactSpeed > threshold) {
-        this.durability -= 1;
-      }
+      const isBall = Boolean(event.body.isBall);
+      const threshold = isBall ? BALL_IMPACT_SPEED : BLOCK_IMPACT_SPEED;
+      if (impactSpeed <= threshold) return;
+      // 速い球ほど大きく削る。プレイヤーが選んだ威力が破壊力に直結するようにするための処理で、
+      // 崩落の連鎖（ブロック同士）は調整が難しくなるので一律1に据え置いている
+      const damage = isBall
+        ? Math.max(1, Math.ceil(impactSpeed / BALL_DAMAGE_PER_SPEED))
+        : 1;
+      this.durability -= damage;
     });
   }
 

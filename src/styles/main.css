@@ -246,6 +246,38 @@ body {
   transition: width 0.02s linear;
 }
 
+/* 狙いの左右（ヨー）を変えるボタン。長押しで回り続ける。
+   #hud 全体は pointer-events: none なので、ここだけ明示的に入力を受け取る */
+.hud-yaw {
+  position: absolute;
+  bottom: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 160px;
+}
+
+.hud-yaw-button {
+  pointer-events: auto;
+  width: 56px;
+  height: 56px;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  /* 長押ししたときに文字選択やスクロールが始まらないようにする */
+  user-select: none;
+  touch-action: none;
+}
+
+.hud-yaw-button:active {
+  background: rgba(255, 210, 63, 0.5);
+}
+
 /* ブロックの文面ラベル（3D座標をスクリーン座標に投影して追従させる） */
 
 
