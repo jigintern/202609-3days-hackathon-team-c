@@ -56,7 +56,6 @@ class App {
         canvas: this.canvas,
         renderer: this.renderer,
         overlayRoot: this.overlayRoot,
-        onGameOver: (score) => this.goTo(SCREEN.RESULT, { score }),
         onBackToTitle: () => this.goTo(SCREEN.TITLE),
       }),
       [SCREEN.RESULT]: new ResultScene({

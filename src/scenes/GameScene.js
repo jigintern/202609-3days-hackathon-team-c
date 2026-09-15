@@ -8,8 +8,6 @@ import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
 
-const TOTAL_BALLS = 8;
-const SCORE_PER_BLOCK = 100;
 const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
 const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケースの保険
 const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
@@ -41,21 +39,20 @@ const CAMERA_DIRECTION = CAMERA_BASE_POSITION.clone()
 const CAMERA_FRAME_PADDING = 1.3;
 
 
-// メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
-// 狙い/発射/スコア判定をひとつにまとめる
+// メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、狙い/発射を
+// ひとつにまとめる。球数制限もスコアもなく、気が済むまで壊せる作りにしてある
 export class GameScene {
-  constructor({ canvas, renderer, overlayRoot, onGameOver, onBackToTitle }) {
+  constructor({ canvas, renderer, overlayRoot, onBackToTitle }) {
     this.canvas = canvas;
     this.renderer = renderer;
     this.overlayRoot = overlayRoot;
-    this.onGameOver = onGameOver;
     this.onBackToTitle = onBackToTitle;
 
-    this.score = 0;
-    this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
     this.activeBall = null;
-    this.hasEnded = false;
+    // 「全部壊した！」は1回だけ出す。壊し切ったあとも残骸を撃ち続けられるため、
+    // 表示済みかどうかをここで覚えておく
+    this.hasShownClearMessage = false;
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
     this.mailText = null;
     // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
@@ -70,11 +67,9 @@ export class GameScene {
   }
 
   mount() {
-    this.hasEnded = false;
-    this.score = 0;
-    this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
     this.activeBall = null;
+    this.hasShownClearMessage = false;
     this.characterTextures = new Map();
 
     this.canvas.style.display = 'block';
@@ -98,8 +93,7 @@ export class GameScene {
       onBackToTitle: this.onBackToTitle,
     });
     this.hud.show();
-    this.hud.setScore(this.score);
-    this.hud.setRemainingBalls(this.remainingBalls);
+    this.hud.setRemainingBlocks(this.blocks.length);
 
     this.aimController = new AimController(
       this.canvas,
@@ -307,12 +301,10 @@ export class GameScene {
     this.blocks.push(block);
   }
 
+  // 球数に上限はない。ただし飛んでいる球が静止するまでは次を撃てない
+  // （複数球の同時管理はしていない）
   _launchBall(direction, power) {
-    if (this.hasEnded) return;
-    if (this.activeBall || this.remainingBalls <= 0) return;
-
-    this.remainingBalls -= 1;
-    this.hud.setRemainingBalls(this.remainingBalls);
+    if (this.activeBall) return;
 
     const ball = new Ball(this.physicsWorld, this.material);
     ball.spawnAt(LAUNCH_ORIGIN);
@@ -330,12 +322,9 @@ export class GameScene {
   }
 
   update(deltaSeconds) {
-    if (this.hasEnded) return;
-
     this.hud.setPower(this.aimController.powerPercent);
 
-    const canLaunch = !this.activeBall && this.remainingBalls > 0;
-    if (this.aimController.isDragging && canLaunch) {
+    if (this.aimController.isDragging && !this.activeBall) {
       this.trajectoryPreview.show();
       this.trajectoryPreview.update(
         LAUNCH_ORIGIN,
@@ -353,31 +342,33 @@ export class GameScene {
 
     this._resolveBrokenBlocks();
     this._resolveActiveBall(deltaSeconds);
-    this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
   }
 
   _resolveBrokenBlocks() {
-    const survivors = [];
-    this.blocks.forEach((block) => {
-      if (block.shouldBreak) {
-        this.scene.remove(block.mesh);
-        block.dispose();
-        this.score += SCORE_PER_BLOCK;
-        this.hud.setScore(this.score);
-      } else {
-        survivors.push(block);
-      }
+    const survivors = this.blocks.filter((block) => {
+      if (!block.shouldBreak) return true;
+      this.scene.remove(block.mesh);
+      block.dispose();
+      return false;
     });
+
+    const brokeSomething = survivors.length !== this.blocks.length;
+    this.blocks = survivors;
+    if (!brokeSomething) return;
 
     // 落ち着いたタワーはcannon-esのスリープに入っていて、下のブロックが消えても
     // 目を覚まさず宙に浮いたままになる。壊れたぶんだけ残りを起こして自然に崩落させる
-    if (survivors.length !== this.blocks.length) {
-      survivors.forEach((block) => block.body.wakeUp());
-    }
+    survivors.forEach((block) => block.body.wakeUp());
+    this.hud.setRemainingBlocks(this.blocks.length);
 
-    this.blocks = survivors;
+    // 壊し切っても遷移はしない。祝福を一度出すだけで、そのまま撃ち続けても
+    // タイトルへ戻ってもプレイヤーの自由にする
+    if (this.blocks.length === 0 && !this.hasShownClearMessage) {
+      this.hasShownClearMessage = true;
+      this.hud.showClearMessage();
+    }
   }
 
   _resolveActiveBall(deltaSeconds) {
@@ -387,15 +378,6 @@ export class GameScene {
       this.scene.remove(this.activeBall.mesh);
       this.activeBall.dispose();
       this.activeBall = null;
-    }
-  }
-
-  _checkGameOver() {
-    const cleared = this.blocks.length === 0;
-    const outOfAmmo = this.remainingBalls <= 0 && !this.activeBall;
-    if (cleared || outOfAmmo) {
-      this.hasEnded = true;
-      this.onGameOver(this.score);
     }
   }
 

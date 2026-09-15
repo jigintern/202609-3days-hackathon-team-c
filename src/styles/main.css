@@ -246,6 +246,40 @@ body {
   background: rgba(10, 12, 24, 0.75);
 }
 
+/* 全部壊したときの祝福表示。遷移も操作停止もせず、数秒で自然に消える。
+   hidden を外した時点でアニメーションが走り、forwards で消えたまま留まる */
+.hud-clear {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  margin: 0;
+  font-size: 2.4rem;
+  font-weight: 900;
+  color: #ffe9a8;
+  white-space: nowrap;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+  animation: hud-clear-fade 2.5s ease-out forwards;
+}
+
+@keyframes hud-clear-fade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  65% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 .hud-power-gauge {
   position: absolute;
   bottom: 32px;
