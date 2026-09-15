@@ -12,6 +12,11 @@ const BLOCK_ROWS = 4;
 const BLOCK_COLS = 2;
 const SCORE_PER_BLOCK = 100;
 const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
+const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケースの保険
+const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
+// メール本文からブロックタワーを組む際の文字数上限（タワーが発散しないための目安。
+// 見た目やカメラ位置に合わせて調整可）
+const MAX_MAIL_BLOCKS = 24;
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
@@ -27,6 +32,14 @@ export class GameScene {
     this.blocks = [];
     this.activeBall = null;
     this.hasEnded = false;
+    // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
+    this.mailText = null;
+  }
+
+  // MailInputScene.onStartGame(mailText) から main.js を通じて渡される入力文字列を受け取る。
+  // mount()より前に呼ばれる想定（ResultScene.setScoreと同じ使い方）
+  setMailText(mailText) {
+    this.mailText = mailText;
   }
 
   mount() {
@@ -119,26 +132,56 @@ export class GameScene {
     const blockWidth = 1.6;
     const blockHeight = 0.95;
 
+    // メール本文が渡されていれば「1文字=1ブロック」で組む。
+    // 改行や空白（全角スペース含む）は見た目上のブロックにしても意味がないため、
+    // \s+ で丸ごと取り除いてから文字ごとに分割する。長すぎる入力はMAX_MAIL_BLOCKS件までに
+    // 切り詰めてタワーが発散しないようにしている（このあたりの挙動はREADME参照）。
+    const characters = this.mailText
+      ? this.mailText.replace(/\s+/g, '').slice(0, MAX_MAIL_BLOCKS).split('')
+      : null;
+
+    if (characters && characters.length > 0) {
+      const cols = Math.max(1, Math.ceil(Math.sqrt(characters.length)));
+      characters.forEach((character, index) => {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        this._spawnBlock(character, row, col, cols, blockWidth, blockHeight);
+      });
+      return;
+    }
+
+    // メール本文が渡されなかった場合（遊び方からのスキップ等）は、
+    // これまで通りランダムな文面でブロックタワーを作る
     for (let row = 0; row < BLOCK_ROWS; row += 1) {
       for (let col = 0; col < BLOCK_COLS; col += 1) {
-        const labelText = getRandomEmailText();
-        const block = new Block(
-          this.physicsWorld,
-          this.material,
-          labelText,
-          this.overlayRoot
+        this._spawnBlock(
+          getRandomEmailText(),
+          row,
+          col,
+          BLOCK_COLS,
+          blockWidth,
+          blockHeight
         );
-        block.mesh.material.color.setHex(row % 2 === 0 ? 0xf2f2f2 : 0xe4e6f5);
-        this.scene.add(block.mesh);
-
-        const x = (col - (BLOCK_COLS - 1) / 2) * blockWidth;
-        const y = blockHeight / 2 + row * blockHeight;
-        const z = 0;
-        block.spawnAt(new THREE.Vector3(x, y, z));
-
-        this.blocks.push(block);
       }
     }
+  }
+
+  _spawnBlock(labelText, row, col, cols, blockWidth, blockHeight) {
+    const block = new Block(
+      this.physicsWorld,
+      this.material,
+      labelText,
+      this.overlayRoot
+    );
+    block.mesh.material.color.setHex(row % 2 === 0 ? 0xf2f2f2 : 0xe4e6f5);
+    this.scene.add(block.mesh);
+
+    const x = (col - (cols - 1) / 2) * blockWidth;
+    const y = blockHeight / 2 + row * blockHeight;
+    const z = 0;
+    block.spawnAt(new THREE.Vector3(x, y, z));
+
+    this.blocks.push(block);
   }
 
   _launchBall(direction, power) {
@@ -153,12 +196,14 @@ export class GameScene {
     ball.launch(direction, power);
     this.scene.add(ball.mesh);
     this.activeBall = ball;
+    this.activeBallAge = 0;
   }
 
-  _isBallAtRest(ball) {
+  _isBallAtRest(ball, age) {
     const speed = ball.body.velocity.length();
     const fellOffStage = ball.body.position.y < -5;
-    return fellOffStage || speed < 0.05;
+    const tookTooLong = age >= BALL_MAX_LIFETIME_SECONDS;
+    return fellOffStage || speed < BALL_REST_SPEED || tookTooLong;
   }
 
   update(deltaSeconds) {
@@ -179,7 +224,7 @@ export class GameScene {
     );
 
     this._resolveBrokenBlocks();
-    this._resolveActiveBall();
+    this._resolveActiveBall(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
@@ -200,9 +245,10 @@ export class GameScene {
     this.blocks = survivors;
   }
 
-  _resolveActiveBall() {
+  _resolveActiveBall(deltaSeconds) {
     if (!this.activeBall) return;
-    if (this._isBallAtRest(this.activeBall)) {
+    this.activeBallAge += deltaSeconds;
+    if (this._isBallAtRest(this.activeBall, this.activeBallAge)) {
       this.scene.remove(this.activeBall.mesh);
       this.activeBall.dispose();
       this.activeBall = null;

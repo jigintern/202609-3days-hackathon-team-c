@@ -4,18 +4,26 @@ import { PhysicsWorld } from './PhysicsWorld.js';
 import { Ball } from './Ball.js';
 import { randomRange } from '../utils/helpers.js';
 
-const ENVELOPE_SIZE = new THREE.Vector3(1.3, 0.8, 0.9);
-// レトロブロック崩し風のカラフルな配色
-const ENVELOPE_COLORS = [
-  0xff5a5a, 0xffb23f, 0xffe14d, 0x4ade80, 0x4ecdc4, 0x4b8bff, 0xc084fc,
-];
-const SPAWN_INTERVAL_ENVELOPE = 0.8;
+const BRICK_SIZE = new THREE.Vector3(1.3, 0.8, 0.9);
+// レンガ調（赤〜茶系）で統一。「1文字=1ブロック」のコンセプトを伝えるダミー配色
+const BRICK_COLORS = [0xb5482a, 0x9c4221, 0x8a3a24, 0xc65a3a];
+// タイトル画面ではダミー文字でよいので、タイトル文言から適当な文字を拝借する
+const DUMMY_CHARS = Array.from(
+  'ドカンおいのりめーるくらっしゃーごえんがなかったこと'
+);
+const SPAWN_INTERVAL_BRICK = 0.8;
 const SPAWN_INTERVAL_BALL = 2.2;
-const MAX_ENVELOPES = 16;
+const MAX_BRICKS = 14;
 const MAX_BALLS = 5;
 const OUT_OF_BOUNDS_Y = -4;
 const BALL_SPAWN_X = 10;
 const OUT_OF_BOUNDS_XZ = BALL_SPAWN_X + 3;
+
+// 台（ペデスタル）: ブロックを置くための低い横長の土台
+const PEDESTAL_SIZE = new THREE.Vector3(9, 0.6, 4);
+const PEDESTAL_TOP_Y = PEDESTAL_SIZE.y;
+const BRICK_SPAWN_X_RANGE = [-3.5, 3.5];
+const BRICK_SPAWN_Z_RANGE = [-1.5, 1.5];
 
 const PADDLE_SIZE = new THREE.Vector3(2.6, 0.4, 0.6);
 const PADDLE_POSITION_Y = 0.5;
@@ -23,12 +31,14 @@ const PADDLE_POSITION_Z = 5.5;
 const PADDLE_RANGE = 3.5;
 const PADDLE_SPEED = 0.7; // 往復の速さ（ラジアン/秒相当）
 
-// タイトル画面の背景で、鉄球がメール封筒の山へ延々と飛び込み続けるアトラクトモード演出
+// タイトル/メール入力画面の背景で、鉄球がレンガの山へ延々と飛び込み続けるアトラクトモード演出。
+// 青空と芝生でゲーム本編と統一感のある明るい屋外の雰囲気にする。
 export class TitleBackground {
-  constructor(canvas, renderer) {
+  constructor(canvas, renderer, overlayRoot) {
     this.canvas = canvas;
     this.renderer = renderer;
-    this.envelopes = [];
+    this.overlayRoot = overlayRoot;
+    this.bricks = [];
     this.balls = [];
   }
 
@@ -36,8 +46,8 @@ export class TitleBackground {
     this.canvas.style.display = 'block';
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0c18);
-    this.scene.fog = new THREE.Fog(0x0a0c18, 14, 30);
+    this.scene.background = new THREE.Color(0x8ecbf0);
+    this.scene.fog = new THREE.Fog(0x8ecbf0, 20, 42);
 
     this.camera = new THREE.PerspectiveCamera(
       50,
@@ -45,23 +55,37 @@ export class TitleBackground {
       0.1,
       100
     );
-    this.camera.position.set(0, 7, 14);
+    this.camera.position.set(0, 7, 15);
     this.camera.lookAt(0, 1, 0);
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.9);
     this.scene.add(ambient);
 
-    const directional = new THREE.DirectionalLight(0xffffff, 0.9);
-    directional.position.set(5, 10, 6);
+    const directional = new THREE.DirectionalLight(0xfff3d6, 1.1);
+    directional.position.set(6, 14, 8);
     this.scene.add(directional);
 
-    const floorGeometry = new THREE.PlaneGeometry(30, 24);
-    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x14172a });
-    this.floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
-    this.floorMesh.rotation.x = -Math.PI / 2;
-    this.scene.add(this.floorMesh);
+    // 芝生（地面）
+    const grassGeometry = new THREE.PlaneGeometry(30, 24);
+    const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x5fae4a });
+    this.grassMesh = new THREE.Mesh(grassGeometry, grassMaterial);
+    this.grassMesh.rotation.x = -Math.PI / 2;
+    this.scene.add(this.grassMesh);
+
+    // ブロックを置くための低い台
+    const pedestalGeometry = new THREE.BoxGeometry(
+      PEDESTAL_SIZE.x,
+      PEDESTAL_SIZE.y,
+      PEDESTAL_SIZE.z
+    );
+    const pedestalMaterial = new THREE.MeshStandardMaterial({
+      color: 0xcac2ae,
+    });
+    this.pedestalMesh = new THREE.Mesh(pedestalGeometry, pedestalMaterial);
+    this.pedestalMesh.position.set(0, PEDESTAL_SIZE.y / 2, 0);
+    this.scene.add(this.pedestalMesh);
 
     // 左右に少しだけ揺れ動くパドル（見た目だけのブロック崩し風演出）
     const paddleGeometry = new THREE.BoxGeometry(
@@ -86,7 +110,21 @@ export class TitleBackground {
     floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
     this.physicsWorld.addBody(floorBody);
 
-    this._envelopeTimer = SPAWN_INTERVAL_ENVELOPE;
+    const pedestalBody = new CANNON.Body({
+      mass: 0,
+      shape: new CANNON.Box(
+        new CANNON.Vec3(
+          PEDESTAL_SIZE.x / 2,
+          PEDESTAL_SIZE.y / 2,
+          PEDESTAL_SIZE.z / 2
+        )
+      ),
+      material: this.material,
+    });
+    pedestalBody.position.set(0, PEDESTAL_SIZE.y / 2, 0);
+    this.physicsWorld.addBody(pedestalBody);
+
+    this._brickTimer = SPAWN_INTERVAL_BRICK;
     this._ballTimer = SPAWN_INTERVAL_BALL * 0.5;
 
     this._onResize = this._onResize.bind(this);
@@ -95,12 +133,16 @@ export class TitleBackground {
 
   unmount() {
     window.removeEventListener('resize', this._onResize);
-    this.envelopes.forEach((item) => this._disposeItem(item));
+    this.bricks.forEach((item) => this._disposeItem(item));
     this.balls.forEach((item) => this._disposeItem(item));
-    this.envelopes = [];
+    this.bricks = [];
     this.balls = [];
     this.paddleMesh.geometry.dispose();
     this.paddleMesh.material.dispose();
+    this.pedestalMesh.geometry.dispose();
+    this.pedestalMesh.material.dispose();
+    this.grassMesh.geometry.dispose();
+    this.grassMesh.material.dispose();
     this.canvas.style.display = 'none';
   }
 
@@ -109,15 +151,15 @@ export class TitleBackground {
     this.paddleMesh.position.x =
       Math.sin(this._paddleTime * PADDLE_SPEED) * PADDLE_RANGE;
 
-    this._envelopeTimer += deltaSeconds;
+    this._brickTimer += deltaSeconds;
     this._ballTimer += deltaSeconds;
 
     if (
-      this._envelopeTimer >= SPAWN_INTERVAL_ENVELOPE &&
-      this.envelopes.length < MAX_ENVELOPES
+      this._brickTimer >= SPAWN_INTERVAL_BRICK &&
+      this.bricks.length < MAX_BRICKS
     ) {
-      this._envelopeTimer = 0;
-      this._spawnEnvelope();
+      this._brickTimer = 0;
+      this._spawnBrick();
     }
     if (
       this._ballTimer >= SPAWN_INTERVAL_BALL &&
@@ -129,22 +171,26 @@ export class TitleBackground {
 
     this.physicsWorld.step(deltaSeconds);
 
-    this.envelopes.forEach((item) => this._syncMesh(item));
+    this.bricks.forEach((item) => this._syncMesh(item));
     this.balls.forEach((item) => this._syncMesh(item));
+
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    this.bricks.forEach((item) => this._updateLabel(item, width, height));
 
     this._recycleOutOfBounds();
 
     this.renderer.render(this.scene, this.camera);
   }
 
-  _spawnEnvelope() {
+  _spawnBrick() {
     const geometry = new THREE.BoxGeometry(
-      ENVELOPE_SIZE.x,
-      ENVELOPE_SIZE.y,
-      ENVELOPE_SIZE.z
+      BRICK_SIZE.x,
+      BRICK_SIZE.y,
+      BRICK_SIZE.z
     );
     const color =
-      ENVELOPE_COLORS[Math.floor(Math.random() * ENVELOPE_COLORS.length)];
+      BRICK_COLORS[Math.floor(Math.random() * BRICK_COLORS.length)];
     const mesh = new THREE.Mesh(
       geometry,
       new THREE.MeshStandardMaterial({ color })
@@ -153,15 +199,15 @@ export class TitleBackground {
     const body = new CANNON.Body({
       mass: 1,
       shape: new CANNON.Box(
-        new CANNON.Vec3(
-          ENVELOPE_SIZE.x / 2,
-          ENVELOPE_SIZE.y / 2,
-          ENVELOPE_SIZE.z / 2
-        )
+        new CANNON.Vec3(BRICK_SIZE.x / 2, BRICK_SIZE.y / 2, BRICK_SIZE.z / 2)
       ),
       material: this.material,
     });
-    body.position.set(randomRange(-4, 4), randomRange(9, 13), randomRange(-2, 2));
+    body.position.set(
+      randomRange(BRICK_SPAWN_X_RANGE[0], BRICK_SPAWN_X_RANGE[1]),
+      randomRange(9, 13),
+      randomRange(BRICK_SPAWN_Z_RANGE[0], BRICK_SPAWN_Z_RANGE[1])
+    );
     body.angularVelocity.set(
       randomRange(-3, 3),
       randomRange(-3, 3),
@@ -170,7 +216,13 @@ export class TitleBackground {
     this.physicsWorld.addBody(body);
     this.scene.add(mesh);
 
-    this.envelopes.push({ mesh, body });
+    const label = document.createElement('div');
+    label.className = 'brick-label';
+    label.textContent =
+      DUMMY_CHARS[Math.floor(Math.random() * DUMMY_CHARS.length)];
+    this.overlayRoot.appendChild(label);
+
+    this.bricks.push({ mesh, body, label });
   }
 
   _spawnBall() {
@@ -199,8 +251,24 @@ export class TitleBackground {
     }
   }
 
+  // ブロック中央のダミー文字ラベルを、3D座標をスクリーン座標に投影して追従させる
+  _updateLabel(item, width, height) {
+    if (!item.label) return;
+    const projected = item.mesh.position.clone().project(this.camera);
+    const behindCamera = projected.z > 1;
+    if (behindCamera) {
+      item.label.style.display = 'none';
+      return;
+    }
+    item.label.style.display = 'block';
+    const x = (projected.x * 0.5 + 0.5) * width;
+    const y = (-projected.y * 0.5 + 0.5) * height;
+    item.label.style.left = `${x}px`;
+    item.label.style.top = `${y}px`;
+  }
+
   _recycleOutOfBounds() {
-    this.envelopes = this._filterOutOfBounds(this.envelopes);
+    this.bricks = this._filterOutOfBounds(this.bricks);
     this.balls = this._filterOutOfBounds(this.balls);
   }
 
@@ -223,6 +291,9 @@ export class TitleBackground {
 
   _disposeItem(item) {
     this.scene.remove(item.mesh);
+    if (item.label) {
+      item.label.remove();
+    }
     if (typeof item.dispose === 'function') {
       item.dispose();
     } else {

@@ -6,15 +6,18 @@ export class TitleScene {
     this.overlayRoot = overlayRoot;
     this.onStart = onStart;
     this.onShowHowTo = onShowHowTo;
-    this.background = new TitleBackground(canvas, renderer);
+    this.background = new TitleBackground(canvas, renderer, overlayRoot);
 
     this.root = document.createElement('div');
     this.root.className = 'screen screen-transparent';
     this.root.innerHTML = `
       <div class="title-panel">
-        <h1>ドカン！お祈りメールクラッシャー</h1>
+        <div class="title-lockup">
+          <span class="title-burst">ドカン！</span>
+          <h1>お祈りメールクラッシャー</h1>
+        </div>
         <p>就活の「お祈りメール」や抽選の「落選メール」を鉄球でぶっ壊せ！</p>
-        <button class="btn" id="btn-start">スタート</button>
+        <button class="btn btn-primary" id="btn-start">スタート</button>
         <button class="btn btn-secondary" id="btn-howto">遊び方</button>
       </div>
     `;
