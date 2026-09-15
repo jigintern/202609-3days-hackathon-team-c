@@ -1,0 +1,146 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0d0f1a;
+  font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+  color: #f4f4f8;
+}
+
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+}
+
+#overlay-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 各画面の共通レイアウト。表示中の画面だけ .is-active を付与する */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+  pointer-events: auto;
+  background: rgba(10, 12, 24, 0.75);
+}
+
+.screen.is-active {
+  display: flex;
+}
+
+.screen h1 {
+  font-size: 2.4rem;
+  margin: 0;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 12px rgba(255, 90, 90, 0.6);
+}
+
+.screen p {
+  max-width: 480px;
+  line-height: 1.7;
+  font-size: 1rem;
+  color: #cfd2e8;
+}
+
+.btn {
+  padding: 14px 36px;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ff5a5a, #d92b2b);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #8f1c1c;
+  transition: transform 0.1s ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #8f1c1c;
+}
+
+.btn-secondary {
+  background: linear-gradient(180deg, #4a5568, #2d3341);
+  box-shadow: 0 4px 0 #1a1e26;
+}
+
+/* ゲーム画面のHUD */
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+
+#hud.is-active {
+  display: block;
+}
+
+.hud-top {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.3rem;
+  font-weight: bold;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+}
+
+.hud-power-gauge {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  height: 20px;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.hud-power-gauge-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #ffd23f, #ff5a5a);
+  transition: width 0.02s linear;
+}
+
+/* ブロックの文面ラベル（3D座標をスクリーン座標に投影して追従させる） */
+.block-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 140px;
+  padding: 4px 6px;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  background: rgba(255, 255, 255, 0.9);
+  color: #1a1a1a;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: pre-line;
+}
