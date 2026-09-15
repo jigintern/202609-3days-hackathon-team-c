@@ -25,8 +25,10 @@ export class Block {
       material,
     });
 
-    // 衝突のたびに耐久値を減らす。速度の大きい衝突のみカウントして誤爆を防ぐ
+    // 耐久値はボールとの衝突でのみ減らす（ブロック同士や床との接触では減らさない）。
+    // 速度の大きい衝突のみカウントして誤爆を防ぐ
     this.body.addEventListener('collide', (event) => {
+      if (!event.body.isBall) return;
       const impactSpeed = event.contact.getImpactVelocityAlongNormal();
       if (Math.abs(impactSpeed) > 1.5) {
         this.durability -= 1;
