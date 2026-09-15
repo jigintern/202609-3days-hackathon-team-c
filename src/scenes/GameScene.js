@@ -15,7 +15,7 @@ const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケ�
 const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
 
 // メール本文からブロックタワーを組む際の文字数上限（タワーが発散しないための目安。
-// MailInputScene側のMAX_MAIL_LENGTH（textareaのmaxlength）と揃えてある）
+// TitleScene側のMAX_MAIL_LENGTH（textareaのmaxlength）と揃えてある）
 const MAX_MAIL_BLOCKS = 100;
 
 // ブロックはサイズを変えない（小さくすると距離を引いた分と相殺してかえって
@@ -55,14 +55,14 @@ export class GameScene {
     this.blocks = [];
     this.activeBall = null;
     this.hasEnded = false;
-    // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
+    // タイトル画面で入力された文章。未入力(空文字)ならランダム文面にフォールバックする
     this.mailText = null;
     // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
     // ブロック単位で破棄すると他のブロックの文字まで消えるため、unmount()でまとめて破棄する
     this.characterTextures = new Map();
   }
 
-  // MailInputScene.onStartGame(mailText) から main.js を通じて渡される入力文字列を受け取る。
+  // TitleScene.onStart(mailText) から main.js を通じて渡される入力文字列を受け取る。
   // mount()より前に呼ばれる想定（ResultScene.setScoreと同じ使い方）
   setMailText(mailText) {
     this.mailText = mailText;
