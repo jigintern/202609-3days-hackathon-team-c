@@ -22,9 +22,9 @@ const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケ�
 const BALL_REST_SPEED = 1.0; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
 
 // メール本文からブロックの壁を組む際の文字数上限。
-// 240文字も試したが、崩落時に壁の8割(201個)が一斉に起きて物理演算だけで1フレーム8ms以上かかり、
-// モバイルで60fpsを維持できなかった。120なら同条件で1.6msに収まる
-const MAX_MAIL_BLOCKS = 120;
+// MailInputScene側のMAX_MAIL_LENGTH（textareaのmaxlength）と揃えてあり、
+// 「入力できたのに壁にならない」状態が起きないようにしている
+const MAX_MAIL_BLOCKS = 100;
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
@@ -65,14 +65,14 @@ export class GameScene {
 
     // 壁の形と発射距離をここで確定させ、以降は画面が回転しても変えない。
     // 途中で発射距離が変わると、プレイヤーが掴んだ狙いの感覚が無効になってしまうため
-    const characters = this._buildCharacters();
-    this.layout = createStageLayout(characters.length, this._aspect());
+    const mailText = this._resolveMailText();
+    this.layout = createStageLayout(mailText, this._aspect(), MAX_MAIL_BLOCKS);
     this.launchOrigin = new THREE.Vector3(0, LAUNCH_HEIGHT, this.layout.launchDistance);
     this.speedRange = launchSpeedRange(this.layout.launchDistance, LAUNCH_HEIGHT);
 
     this._setupThree();
     this._setupPhysics();
-    this._setupWall(characters);
+    this._setupWall();
 
     this.hud = new HUD(this.overlayRoot);
     this.hud.show();
@@ -178,29 +178,20 @@ export class GameScene {
     this.physicsWorld.addBody(floorBody);
   }
 
-  // 1文字=1ブロックで壁を組む。列数は StageLayout が画面比から決めた値を使うので、
-  // 縦持ちなら縦長の壁、横持ちなら横長の壁になり、どちらでも文面が画面に収まる
-  _setupWall(characters) {
-    const { cols, rows } = this.layout;
+  // 1文字=1ブロックで壁を組む。行・列は StageLayout が文章と画面比から決めた
+  // 値を使うので、縦持ちなら縦長の壁、横持ちなら横長の壁になり、どちらでも
+  // 文面が画面に収まる。各行は同じ幅（cols）に揃えて空白ブロックで埋めてあるので、
+  // 行をまたいでも同じ列には必ず支えがある（自重で崩れない）
+  _setupWall() {
+    const { rows } = this.layout;
     // 文面は上の段から読み始められるように積む。単純に下から詰めると
-    // 最下段が文頭になり、20段の壁を下から上へ読むことになってメールが読めない。
-    //
-    // ただし端数の段（文字数が列数で割り切れないときの半端な行）は必ず最上段に置く。
-    // 端数を最下段に置くと土台に穴が空いて、開始直後に壁が崩れてしまうため
-    const remainder = characters.length % cols;
-    characters.forEach((character, index) => {
-      let rowFromTop;
-      let col;
-      if (remainder > 0 && index < remainder) {
-        rowFromTop = 0;
-        col = index;
-      } else {
-        const indexInFullRows = index - remainder;
-        rowFromTop =
-          (remainder > 0 ? 1 : 0) + Math.floor(indexInFullRows / cols);
-        col = indexInFullRows % cols;
-      }
-      this._spawnBlock(character, rows - 1 - rowFromTop, col);
+    // 最下段が文頭になり、壁を下から上へ読むことになってメールが読めない
+    const topRow = rows.length - 1;
+    rows.forEach((rowChars, indexFromTop) => {
+      const row = topRow - indexFromTop;
+      rowChars.forEach((character, col) => {
+        this._spawnBlock(character, row, col);
+      });
     });
 
     // 組み上げた直後に眠らせておく。20段積むと開始直後の自重の沈み込みだけで
@@ -210,24 +201,18 @@ export class GameScene {
     this.blocks.forEach((block) => block.body.sleep());
   }
 
-  // 壁に積む文字の配列を作る。「1文字=1ブロック」の組み方をここ1箇所に集約し、
-  // メール本文が渡されなかった場合（遊び方からゲームへ直行した場合など）も
-  // ランダムな文面を同じ手順で1文字ずつに分解する。
-  // 改行や空白（全角スペース含む）はブロックにしても意味がないため \s+ で取り除き、
-  // サロゲートペア（絵文字など）を割らないよう Array.from で分割する。
-  // 長すぎる入力は MAX_MAIL_BLOCKS 件までに切り詰めて壁が大きくなりすぎないようにしている。
-  _buildCharacters() {
-    const normalized = (this.mailText ?? '').replace(/\s+/g, '');
-    // 空白だけの入力でブロックが0個になると開始直後にゲームが終わってしまうため、
-    // 正規化した結果が空ならランダム文面に退避する
-    const source =
-      normalized.length > 0
-        ? normalized
-        : getRandomEmailText().replace(/\s+/g, '');
-    return Array.from(source).slice(0, MAX_MAIL_BLOCKS);
+  // 壁に積む文章を決める。メール本文が渡されなかった場合（遊び方からゲームへ
+  // 直行した場合など）や空白だけの入力では、開始直後にブロックが0個で
+  // ゲームが終わってしまうため、ランダムな文面に退避する。
+  // 実際の行分割（改行の保持・自動折り返し・空白パディング）は
+  // StageLayout.createStageLayout に集約してある
+  _resolveMailText() {
+    const hasContent =
+      Array.from((this.mailText ?? '').replace(/\s+/g, '')).length > 0;
+    return hasContent ? this.mailText : getRandomEmailText();
   }
 
-  // 同じ文字は同じテクスチャを使い回す。120ブロック分を毎回描き直す必要はなく、
+  // 同じ文字は同じテクスチャを使い回す。ブロック数ぶん毎回描き直す必要はなく、
   // 「の」「ご」のように頻出する文字ほど効く
   _getCharacterTexture(character) {
     let texture = this.characterTextures.get(character);

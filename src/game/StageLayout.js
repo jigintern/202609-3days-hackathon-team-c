@@ -48,28 +48,61 @@ export function wallHeight(rows) {
   return rows * BLOCK_SPACING_Y;
 }
 
-// 文字数と画面比から、壁が最も画面に収まりやすい列数を選ぶ。
-// 画面が縦長なら縦長の壁（列数が少なく段数が多い）、横長なら横長の壁が選ばれる。
-// 総当たりで済む規模（最大120文字）なので素直に全列数を試している
-export function chooseColumns(characterCount, aspect) {
+// 改行はそのまま行の区切りとして保ち、改行のない長い行は wrapWidth で自動折り返す。
+// 行内の空白（全角含む）は取り除き、サロゲートペア（絵文字など）を割らないよう
+// Array.from で分割する。全体で maxBlocks 文字を超える分は先頭から数えて切り詰める。
+// 短い行は末尾を空白ブロック（''）で埋めて全行を wrapWidth 幅に揃える。行ごとに
+// 実際の文字数で中央寄せすると、短い行の上に長い行が乗ったときに支えのない
+// オーバーハングができて自重で崩れてしまうため（実機で確認済み）、
+// 必ず同じ幅・左詰めで配置する
+function buildRows(text, wrapWidth, maxBlocks) {
+  const rows = [];
+  let remaining = maxBlocks;
+
+  outer: for (const line of text.split(/\r\n|\r|\n/)) {
+    const lineChars = Array.from(line.replace(/\s+/g, ''));
+    for (let start = 0; start < lineChars.length; start += wrapWidth) {
+      if (remaining <= 0) break outer;
+      const chunk = lineChars.slice(start, start + wrapWidth).slice(0, remaining);
+      rows.push(chunk);
+      remaining -= chunk.length;
+    }
+  }
+
+  return rows.map((row) => {
+    const padded = row.slice();
+    while (padded.length < wrapWidth) padded.push('');
+    return padded;
+  });
+}
+
+// 文章と画面比から、壁が最も画面に収まりやすい折り返し幅（列数）を選ぶ。
+// 改行をそのまま行の区切りとして保つ都合上、単純な計算式では行数を求められない
+// ため、候補の列数ごとに実際に buildRows で行分割し直して行数を数える。
+// 総当たりで済む規模（最大 maxBlocks 文字）なので素直に全列数を試している。
+// 画面が縦長なら縦長の壁（列数が少なく段数が多い）、横長なら横長の壁が選ばれる
+export function chooseColumns(text, aspect, maxBlocks) {
   let best = null;
-  for (let cols = 1; cols <= characterCount; cols += 1) {
-    const rows = Math.ceil(characterCount / cols);
-    const distance = fitDistance(wallWidth(cols), wallHeight(rows), aspect);
+  for (let cols = 1; cols <= maxBlocks; cols += 1) {
+    const rows = buildRows(text, cols, maxBlocks);
+    if (rows.length === 0) continue;
+    const distance = fitDistance(wallWidth(cols), wallHeight(rows.length), aspect);
     if (!best || distance < best.distance) {
       best = { cols, rows, distance };
     }
   }
-  return best ?? { cols: 1, rows: 1, distance: MIN_LAUNCH_DISTANCE };
+  return best ?? { cols: 1, rows: [['']], distance: MIN_LAUNCH_DISTANCE };
 }
 
 // ゲーム開始時に一度だけ呼び、その後は変えない寸法一式を返す。
 // 発射距離をここで確定させてしまうのが要点で、以降どれだけ画面が回転しても
-// 物理側（狙い方・飛距離）は一切変わらない。動くのはカメラだけになる
-export function createStageLayout(characterCount, aspect) {
-  const { cols, rows } = chooseColumns(characterCount, aspect);
+// 物理側（狙い方・飛距離）は一切変わらない。動くのはカメラだけになる。
+// rows は行ごとに文字（またはパディング用の''）を並べた配列で、rows[0] が
+// 文章の先頭行（＝壁の最上段になる）
+export function createStageLayout(text, aspect, maxBlocks) {
+  const { cols, rows } = chooseColumns(text, aspect, maxBlocks);
   const width = wallWidth(cols);
-  const height = wallHeight(rows);
+  const height = wallHeight(rows.length);
 
   const launchDistance = clamp(
     fitDistance(width, height, aspect),
