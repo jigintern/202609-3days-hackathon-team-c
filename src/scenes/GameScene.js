@@ -15,8 +15,30 @@ const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケ�
 const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
 
 // メール本文からブロックタワーを組む際の文字数上限（タワーが発散しないための目安。
-// 見た目やカメラ位置に合わせて調整可）
-const MAX_MAIL_BLOCKS = 24;
+// MailInputScene側のMAX_MAIL_LENGTH（textareaのmaxlength）と揃えてある）
+const MAX_MAIL_BLOCKS = 100;
+
+// ブロックはサイズを変えない（小さくすると距離を引いた分と相殺してかえって
+// 読みにくくなることを実機確認したため）。間隔もブロックサイズと同じ元の値のまま
+const BLOCK_WIDTH = 1.6;
+const BLOCK_HEIGHT = 0.95;
+
+// 縦に積みすぎると自重で崩れて開始直後にブロックが壊れてしまう（実機で10行の
+// 正方形タワーが自壊するのを確認済み）。行数はここで頭打ちにし、それ以上は
+// 列を増やして横に広げる
+const MAX_ROWS = 6;
+
+const CAMERA_FOV_DEG = 50;
+const CAMERA_LOOK_AT = new THREE.Vector3(0, 2, 0);
+const CAMERA_BASE_POSITION = new THREE.Vector3(0, 9, 14);
+const CAMERA_BASE_DISTANCE = CAMERA_BASE_POSITION.distanceTo(CAMERA_LOOK_AT);
+const CAMERA_DIRECTION = CAMERA_BASE_POSITION.clone()
+  .sub(CAMERA_LOOK_AT)
+  .normalize();
+// カメラが見下ろす角度になっている分、単純な視野角の計算だけでは必要な距離を
+// 少し過小評価してしまうため、余裕を持たせておく（スマホの縦画面で
+// タワーが画面端で切れるのを実機確認して調整した値）
+const CAMERA_FRAME_PADDING = 1.3;
 
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
@@ -55,6 +77,17 @@ export class GameScene {
     this.characterTextures = new Map();
 
     this.canvas.style.display = 'block';
+
+    // 行構成（＝ブロック数）はカメラ距離とタワーのグリッド両方に影響するため、
+    // ここで一度だけ確定させて両方に使い回す（_buildRowsはランダム文面への
+    // フォールバックを含み呼ぶたびに結果が変わり得るため、二重に呼ばない）。
+    // 各行は同じ幅（wrapWidth）に揃えてあり、足りない分は空白ブロックで埋めて
+    // あるので、行をまたいでも同じ列には必ず支えがある（自重で崩れない）
+    const { rows, wrapWidth } = this._buildRows();
+    this.rows = rows;
+    this.maxCols = wrapWidth;
+    this.towerWidth = this.maxCols * BLOCK_WIDTH;
+    this.towerHeight = this.rows.length * BLOCK_HEIGHT;
 
     this._setupThree();
     this._setupPhysics();
@@ -100,13 +133,12 @@ export class GameScene {
     this.scene.fog = new THREE.Fog(0x1a1d2e, 20, 40);
 
     this.camera = new THREE.PerspectiveCamera(
-      50,
+      CAMERA_FOV_DEG,
       window.innerWidth / window.innerHeight,
       0.1,
-      100
+      300
     );
-    this.camera.position.set(0, 9, 14);
-    this.camera.lookAt(0, 2, 0);
+    this._applyCameraFraming();
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -126,6 +158,38 @@ export class GameScene {
     this.scene.add(this.floorMesh);
   }
 
+  // タワーの実際の幅・高さが画面（の視野角）にちょうど収まるカメラ距離を、
+  // 現在のアスペクト比から逆算する。スマホの縦画面のように横方向の視野が狭い
+  // ときは横幅基準の距離が、通常の横長画面では高さ基準の距離が効いてくる。
+  // カメラは見下ろす角度がついているため正確な計算ではないが、
+  // CAMERA_FRAME_PADDINGで余裕を持たせて画面端で切れないようにしている
+  _applyCameraFraming() {
+    const aspect = this.camera.aspect;
+    const verticalFov = THREE.MathUtils.degToRad(CAMERA_FOV_DEG);
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+
+    const halfWidth = (this.towerWidth / 2) * CAMERA_FRAME_PADDING;
+    const halfHeight = (this.towerHeight / 2) * CAMERA_FRAME_PADDING;
+    const distanceForWidth = halfWidth / Math.tan(horizontalFov / 2);
+    const distanceForHeight = halfHeight / Math.tan(verticalFov / 2);
+    const distance = Math.max(
+      CAMERA_BASE_DISTANCE,
+      distanceForWidth,
+      distanceForHeight
+    );
+
+    this.camera.position
+      .copy(CAMERA_LOOK_AT)
+      .addScaledVector(CAMERA_DIRECTION, distance);
+    this.camera.lookAt(CAMERA_LOOK_AT);
+
+    // フォグの範囲（元は20〜40）はカメラ距離が基準のときの値。カメラを遠ざける
+    // 分だけフォグも比例して遠くに伸ばさないと、タワーがフォグに沈んで見えなくなる
+    const cameraDistanceScale = distance / CAMERA_BASE_DISTANCE;
+    this.scene.fog.near = 20 * cameraDistanceScale;
+    this.scene.fog.far = 40 * cameraDistanceScale;
+  }
+
   _setupPhysics() {
     this.physicsWorld = new PhysicsWorld();
     this.material = this.physicsWorld.defaultMaterial;
@@ -140,37 +204,80 @@ export class GameScene {
   }
 
   _setupTower() {
-    const blockWidth = 1.6;
-    const blockHeight = 0.95;
-
-    const characters = this._buildCharacters();
-    const cols = Math.max(1, Math.ceil(Math.sqrt(characters.length)));
-
-    characters.forEach((character, index) => {
-      const row = Math.floor(index / cols);
-      const col = index % cols;
-      this._spawnBlock(character, row, col, cols, blockWidth, blockHeight);
+    // 各行は改行または自動折り返しで区切られた文字配列。全行共通のmaxColsを
+    // 基準に左詰めで配置する（行ごとに中央寄せすると物理的に不安定になるため）
+    this.rows.forEach((rowChars, row) => {
+      rowChars.forEach((character, col) => {
+        this._spawnBlock(character, row, col);
+      });
     });
   }
 
-  // タワーに積む文字の配列を作る。「1文字=1ブロック」の組み方をここ1箇所に集約し、
-  // メール本文が渡されなかった場合（遊び方からゲームへ直行した場合など）も
-  // ランダムな文面を同じ手順で1文字ずつに分解する。
-  // 改行や空白（全角スペース含む）はブロックにしても意味がないため \s+ で取り除き、
-  // サロゲートペア（絵文字など）を割らないよう Array.from で分割する。
-  // 長すぎる入力は MAX_MAIL_BLOCKS 件までに切り詰めてタワーが発散しないようにしている。
-  _buildCharacters() {
-    const normalized = (this.mailText ?? '').replace(/\s+/g, '');
+  // タワーに積む行（文字の配列の配列）を作る。「1文字=1ブロック」の組み方を
+  // ここ1箇所に集約し、メール本文が渡されなかった場合（遊び方からゲームへ直行した
+  // 場合など）もランダムな文面を同じ手順で行分解する。
+  //
+  // - メール本文中の改行はそのまま新しい行の区切りとして扱う（改行のたびに新しい行）
+  // - 改行のない長い行は自動で折り返す（折り返し幅は_splitIntoRows参照）
+  // - 行内のスペース（全角含む）はブロックにしても意味がないため取り除く
+  // - サロゲートペア（絵文字など）を割らないよう Array.from で分割する
+  // - 全体の文字数が MAX_MAIL_BLOCKS を超える分は切り詰めてタワーが発散しないようにする
+  // - 短い行は空白ブロック（''）で右側を埋め、全行を同じ幅に揃える
+  _buildRows() {
+    const primary = this._splitIntoRows(this.mailText ?? '');
     // 空白だけの入力でブロックが0個になると開始直後にゲームが終わってしまうため、
-    // 正規化した結果が空ならランダム文面に退避する
-    const source =
-      normalized.length > 0
-        ? normalized
-        : getRandomEmailText().replace(/\s+/g, '');
-    return Array.from(source).slice(0, MAX_MAIL_BLOCKS);
+    // 行が1つも残らなければランダム文面に退避する
+    return primary.rows.length > 0
+      ? primary
+      : this._splitIntoRows(getRandomEmailText());
   }
 
-  // 同じ文字は同じテクスチャを使い回す。24ブロック分を毎回描き直す必要はなく、
+  _splitIntoRows(text) {
+    // 折り返し幅は総文字数の平方根（正方形に近い形）から決める。これは
+    // 「読みやすさを確認済みの基準」である元の実装のcols計算
+    // （Math.ceil(Math.sqrt(文字数))）を踏襲したもの。改行のない1本の長文でも
+    // 極端に横長にならず、行数・列数がバランスよく増えていく。
+    // ただしMAX_ROWSを超えて積み上がりそうな文字数になったら、行を増やさず
+    // 折り返し幅（列数）だけを増やして横に広げる
+    const totalChars = Math.min(
+      MAX_MAIL_BLOCKS,
+      Array.from(text.replace(/\s+/g, '')).length
+    );
+    const wrapWidth = Math.max(
+      1,
+      Math.ceil(Math.sqrt(totalChars)),
+      Math.ceil(totalChars / MAX_ROWS)
+    );
+
+    const rows = [];
+    let remaining = MAX_MAIL_BLOCKS;
+
+    outer: for (const line of text.split(/\r\n|\r|\n/)) {
+      const lineChars = Array.from(line.replace(/\s+/g, ''));
+      for (let start = 0; start < lineChars.length; start += wrapWidth) {
+        if (remaining <= 0) break outer;
+        const chunk = lineChars.slice(start, start + wrapWidth).slice(0, remaining);
+        rows.push(chunk);
+        remaining -= chunk.length;
+      }
+    }
+
+    // 行ごとに実際の文字数で中央寄せすると、短い行の上に長い行が乗ったときに
+    // 支えのないオーバーハングができて自重で崩れてしまう（実機で確認済み）。
+    // 全行をwrapWidthに揃えて空白ブロックで埋めることで、どの行も必ず
+    // 下の行に支えられるようにする
+    const paddedRows = rows.map((row) => {
+      const padded = row.slice();
+      while (padded.length < wrapWidth) {
+        padded.push('');
+      }
+      return padded;
+    });
+
+    return { rows: paddedRows, wrapWidth };
+  }
+
+  // 同じ文字は同じテクスチャを使い回す。ブロック数ぶん毎回描き直す必要はなく、
   // 「の」「ご」のように頻出する文字ほど効く
   _getCharacterTexture(character) {
     let texture = this.characterTextures.get(character);
@@ -181,7 +288,7 @@ export class GameScene {
     return texture;
   }
 
-  _spawnBlock(character, row, col, cols, blockWidth, blockHeight) {
+  _spawnBlock(character, row, col) {
     const block = new Block(
       this.physicsWorld,
       this.material,
@@ -189,8 +296,8 @@ export class GameScene {
     );
     this.scene.add(block.mesh);
 
-    const x = (col - (cols - 1) / 2) * blockWidth;
-    const y = blockHeight / 2 + row * blockHeight;
+    const x = (col - (this.maxCols - 1) / 2) * BLOCK_WIDTH;
+    const y = BLOCK_HEIGHT / 2 + row * BLOCK_HEIGHT;
     const z = 0;
     block.spawnAt(new THREE.Vector3(x, y, z));
 
@@ -291,6 +398,9 @@ export class GameScene {
 
   _onResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
+    // 画面回転などでアスペクト比が変わるとタワーが収まる距離も変わるため、
+    // カメラ位置も引き直す
+    this._applyCameraFraming();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
