@@ -2,15 +2,34 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from './PhysicsWorld.js';
 import { Ball } from './Ball.js';
+import {
+  BLOCK_SIZE,
+  createBlockMaterials,
+  createCharacterTexture,
+} from './Block.js';
+import { EMAIL_TEXTS } from '../data/emailTexts.js';
 import { randomRange } from '../utils/helpers.js';
 
-const BRICK_SIZE = new THREE.Vector3(1.3, 0.8, 0.9);
-// レンガ調（赤〜茶系）で統一。「1文字=1ブロック」のコンセプトを伝えるダミー配色
-const BRICK_COLORS = [0xb5482a, 0x9c4221, 0x8a3a24, 0xc65a3a];
-// タイトル画面ではダミー文字でよいので、タイトル文言から適当な文字を拝借する
-const DUMMY_CHARS = Array.from(
-  'ドカンおいのりめーるくらっしゃーごえんがなかったこと'
-);
+// 背景に降らせるダミー文字の種類数。文字テクスチャは1文字につき1枚
+// （448x288 ≒ 0.5MB）キャッシュするため、種類が増えるほどメモリを食う。
+// 背景のダミーなので語彙は絞ってよく、ここで上限を固定しておく
+const DUMMY_CHAR_COUNT = 24;
+
+// ゲーム本編で実際に壊すのと同じ語彙にするため、お祈りメールの文面から文字を拾う。
+// 異なり文字は80種ほどあり、先頭から詰めると1通目の語彙だけに偏ってしまう。
+// 全文面へ散るよう等間隔に間引く（結果は決定的なので起動ごとにブレない）
+const DUMMY_CHARS = (() => {
+  const unique = Array.from(
+    new Set(Array.from(EMAIL_TEXTS.join('').replace(/\s+/g, '')))
+  );
+  if (unique.length <= DUMMY_CHAR_COUNT) return unique;
+  const step = unique.length / DUMMY_CHAR_COUNT;
+  return Array.from(
+    { length: DUMMY_CHAR_COUNT },
+    (_, index) => unique[Math.floor(index * step)]
+  );
+})();
+
 const SPAWN_INTERVAL_BRICK = 0.8;
 const SPAWN_INTERVAL_BALL = 2.2;
 const MAX_BRICKS = 14;
@@ -25,14 +44,19 @@ const PEDESTAL_TOP_Y = PEDESTAL_SIZE.y;
 const BRICK_SPAWN_X_RANGE = [-3.5, 3.5];
 const BRICK_SPAWN_Z_RANGE = [-1.5, 1.5];
 
-// タイトル/メール入力画面の背景で、鉄球がレンガの山へ延々と飛び込み続けるアトラクトモード演出。
-// 青空と芝生でゲーム本編と統一感のある明るい屋外の雰囲気にする。
+// タイトル/メール入力画面の背景で、鉄球がブロックの山へ延々と飛び込み続ける
+// アトラクトモード演出。ブロックの見た目（寸法・紙色の下地・文字の焼き込み方）は
+// ゲーム画面と同じものをBlock.jsから借りており、画面が切り替わっても
+// 同じブロックを見ている感覚が途切れないようにしている。
 export class TitleBackground {
   constructor(canvas, renderer) {
     this.canvas = canvas;
     this.renderer = renderer;
     this.bricks = [];
     this.balls = [];
+    // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
+    // ブロック単位で破棄すると他のブロックの文字まで消えるため、unmount()でまとめて破棄する
+    this.characterTextures = new Map();
   }
 
   mount() {
@@ -122,6 +146,11 @@ export class TitleBackground {
     this.pedestalMesh.material.dispose();
     this.grassMesh.geometry.dispose();
     this.grassMesh.material.dispose();
+
+    // ブロック間で共有している文字テクスチャはここでまとめて破棄する
+    this.characterTextures.forEach((texture) => texture.dispose());
+    this.characterTextures.clear();
+
     this.canvas.style.display = 'none';
   }
 
@@ -156,27 +185,21 @@ export class TitleBackground {
 
   _spawnBrick() {
     const geometry = new THREE.BoxGeometry(
-      BRICK_SIZE.x,
-      BRICK_SIZE.y,
-      BRICK_SIZE.z
+      BLOCK_SIZE.x,
+      BLOCK_SIZE.y,
+      BLOCK_SIZE.z
     );
-    const color =
-      BRICK_COLORS[Math.floor(Math.random() * BRICK_COLORS.length)];
     const char = DUMMY_CHARS[Math.floor(Math.random() * DUMMY_CHARS.length)];
-    // 6面のうち1面だけランダムに選び、そこにだけ文字テクスチャを貼る。
-    // 他の面は無地なので、回転で文字面がカメラを向いた時だけ読める
-    const charFaceIndex = Math.floor(Math.random() * 6);
-    const materials = Array.from({ length: 6 }, (_, i) =>
-      i === charFaceIndex
-        ? new THREE.MeshStandardMaterial({ map: this._createCharTexture(char, color) })
-        : new THREE.MeshStandardMaterial({ color })
+    // 面の構成（手前と背面の2面に文字、残り4面は紙の断面色）もゲーム画面と共通
+    const mesh = new THREE.Mesh(
+      geometry,
+      createBlockMaterials(this._getCharacterTexture(char))
     );
-    const mesh = new THREE.Mesh(geometry, materials);
 
     const body = new CANNON.Body({
       mass: 1,
       shape: new CANNON.Box(
-        new CANNON.Vec3(BRICK_SIZE.x / 2, BRICK_SIZE.y / 2, BRICK_SIZE.z / 2)
+        new CANNON.Vec3(BLOCK_SIZE.x / 2, BLOCK_SIZE.y / 2, BLOCK_SIZE.z / 2)
       ),
       material: this.material,
     });
@@ -196,29 +219,14 @@ export class TitleBackground {
     this.bricks.push({ mesh, body });
   }
 
-  // ブロックの地色を背景に、1文字を描いたcanvasからテクスチャを作る
-  _createCharTexture(char, colorHex) {
-    const size = 128;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-
-    ctx.fillStyle = `#${colorHex.toString(16).padStart(6, '0')}`;
-    ctx.fillRect(0, 0, size, size);
-
-    ctx.font = '900 72px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
-    ctx.fillStyle = '#fff6e6';
-    ctx.fillText(char, size / 2, size / 2);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
+  // 同じ文字は同じテクスチャを使い回す。背景のブロックは画面外へ落ちるたびに
+  // 作り直されるので、キャッシュしないと同じ文字を何度も描き直すことになる
+  _getCharacterTexture(character) {
+    let texture = this.characterTextures.get(character);
+    if (!texture) {
+      texture = createCharacterTexture(character);
+      this.characterTextures.set(character, texture);
+    }
     return texture;
   }
 
@@ -280,10 +288,10 @@ export class TitleBackground {
       const materials = Array.isArray(item.mesh.material)
         ? item.mesh.material
         : [item.mesh.material];
-      materials.forEach((material) => {
-        material.map?.dispose();
-        material.dispose();
-      });
+      // 側面は同じマテリアルを4面に使い回しているのでSetで重複を除いてから破棄する。
+      // 文字テクスチャは他のブロックと共有しているためここでは破棄しない
+      // （unmount()でまとめて破棄する）
+      new Set(materials).forEach((material) => material.dispose());
     }
   }
 
