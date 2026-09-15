@@ -6,7 +6,7 @@ export class TitleScene {
     this.overlayRoot = overlayRoot;
     this.onStart = onStart;
     this.onShowHowTo = onShowHowTo;
-    this.background = new TitleBackground(canvas, renderer, overlayRoot);
+    this.background = new TitleBackground(canvas, renderer);
 
     this.root = document.createElement('div');
     this.root.className = 'screen screen-transparent';

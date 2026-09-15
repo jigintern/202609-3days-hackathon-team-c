@@ -29,8 +29,7 @@ body {
 }
 
 /* 各画面の共通レイアウト。表示中の画面だけ .is-active を付与する。
-   z-indexは、タイトル/メール入力画面で背景に浮かぶブロックのダミー文字ラベル
-   （.brick-label）より必ず手前に来るようにするため */
+   z-indexは、背後の3D演出（#game-canvas）より必ず手前に来るようにするため */
 .screen {
   position: absolute;
   inset: 0;
@@ -260,21 +259,6 @@ body {
   border-radius: 4px;
   pointer-events: none;
   white-space: pre-line;
-}
-
-/* タイトル/メール入力画面の背景レンガに表示するダミー1文字ラベル。
-   背景を透明にし、文字色＋濃い縁取りでレンガとのコントラストを確保する */
-.brick-label {
-  position: absolute;
-  z-index: 1;
-  transform: translate(-50%, -50%);
-  font-size: 1.15rem;
-  font-weight: 900;
-  color: #fff6e6;
-  text-shadow:
-    0 0 4px rgba(0, 0, 0, 0.85),
-    1px 1px 0 rgba(0, 0, 0, 0.6);
-  pointer-events: none;
 }
 
 /* メール本文入力画面 */
