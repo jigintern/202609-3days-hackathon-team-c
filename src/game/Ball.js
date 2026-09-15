@@ -23,8 +23,13 @@ export class Ball {
       mass: 4,
       shape: new CANNON.Sphere(RADIUS),
       material,
-      linearDamping: 0.05,
+      // 球体は減衰が小さすぎるといつまでも転がり続けて静止判定が来ないため、
+      // 現実の転がり摩擦相当の減衰をかけて数秒以内に収束させる
+      linearDamping: 0.3,
+      angularDamping: 0.4,
     });
+    // ブロック側でボールとの衝突だけを判定できるよう目印を付けておく
+    this.body.isBall = true;
   }
 
   spawnAt(position) {

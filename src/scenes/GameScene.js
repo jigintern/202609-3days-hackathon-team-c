@@ -12,6 +12,8 @@ const BLOCK_ROWS = 4;
 const BLOCK_COLS = 2;
 const SCORE_PER_BLOCK = 100;
 const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
+const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケースの保険
+const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
@@ -161,12 +163,14 @@ export class GameScene {
     ball.launch(direction, power);
     this.scene.add(ball.mesh);
     this.activeBall = ball;
+    this.activeBallAge = 0;
   }
 
-  _isBallAtRest(ball) {
+  _isBallAtRest(ball, age) {
     const speed = ball.body.velocity.length();
     const fellOffStage = ball.body.position.y < -5;
-    return fellOffStage || speed < 0.05;
+    const tookTooLong = age >= BALL_MAX_LIFETIME_SECONDS;
+    return fellOffStage || speed < BALL_REST_SPEED || tookTooLong;
   }
 
   update(deltaSeconds) {
@@ -187,7 +191,7 @@ export class GameScene {
     );
 
     this._resolveBrokenBlocks();
-    this._resolveActiveBall();
+    this._resolveActiveBall(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
@@ -208,9 +212,10 @@ export class GameScene {
     this.blocks = survivors;
   }
 
-  _resolveActiveBall() {
+  _resolveActiveBall(deltaSeconds) {
     if (!this.activeBall) return;
-    if (this._isBallAtRest(this.activeBall)) {
+    this.activeBallAge += deltaSeconds;
+    if (this._isBallAtRest(this.activeBall, this.activeBallAge)) {
       this.scene.remove(this.activeBall.mesh);
       this.activeBall.dispose();
       this.activeBall = null;
