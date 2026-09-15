@@ -4,6 +4,7 @@ import { PhysicsWorld } from '../game/PhysicsWorld.js';
 import { Ball } from '../game/Ball.js';
 import { Block } from '../game/Block.js';
 import { AimController } from '../game/AimController.js';
+import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
 
@@ -68,6 +69,7 @@ export class GameScene {
       LAUNCH_ORIGIN,
       (direction, power) => this._launchBall(direction, power)
     );
+    this.trajectoryPreview = new TrajectoryPreview(this.scene);
 
     this._onResize = this._onResize.bind(this);
     window.addEventListener('resize', this._onResize);
@@ -76,6 +78,7 @@ export class GameScene {
   unmount() {
     window.removeEventListener('resize', this._onResize);
     this.aimController.dispose();
+    this.trajectoryPreview.dispose();
     this.hud.hide();
     this.hud.root.remove();
 
@@ -211,8 +214,19 @@ export class GameScene {
   update(deltaSeconds) {
     if (this.hasEnded) return;
 
-    this.aimController.update(deltaSeconds);
     this.hud.setPower(this.aimController.powerPercent);
+
+    const canLaunch = !this.activeBall && this.remainingBalls > 0;
+    if (this.aimController.isDragging && canLaunch) {
+      this.trajectoryPreview.show();
+      this.trajectoryPreview.update(
+        LAUNCH_ORIGIN,
+        this.aimController.direction,
+        this.aimController.powerPercent
+      );
+    } else {
+      this.trajectoryPreview.hide();
+    }
 
     this.physicsWorld.step(deltaSeconds);
 

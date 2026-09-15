@@ -1,10 +1,12 @@
 import * as CANNON from 'cannon-es';
 
+export const GRAVITY_Y = -9.82;
+
 // cannon-esのワールド生成と毎フレームのstepをまとめるラッパー
 export class PhysicsWorld {
   constructor() {
     this.world = new CANNON.World({
-      gravity: new CANNON.Vec3(0, -9.82, 0),
+      gravity: new CANNON.Vec3(0, GRAVITY_Y, 0),
     });
     this.world.broadphase = new CANNON.SAPBroadphase(this.world);
     this.world.allowSleep = true;

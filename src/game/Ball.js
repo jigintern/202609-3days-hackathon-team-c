@@ -3,7 +3,7 @@ import * as CANNON from 'cannon-es';
 import { clamp } from '../utils/helpers.js';
 
 const RADIUS = 0.35;
-const MAX_LAUNCH_SPEED = 26;
+export const MAX_LAUNCH_SPEED = 26;
 
 // 鉄球。生成した瞬間は静止しており、launch()で狙った方向へパワーに応じた速度を与える
 export class Ball {
@@ -28,7 +28,7 @@ export class Ball {
       linearDamping: 0.3,
       angularDamping: 0.4,
     });
-    // ブロック側でボールとの衝突だけを判定できるよう目印を付けておく
+    // ブロック側で衝突相手がボールかどうかを見分けるための目印
     this.body.isBall = true;
   }
 
