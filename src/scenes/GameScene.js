@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from '../game/PhysicsWorld.js';
 import { Ball } from '../game/Ball.js';
-import { Block } from '../game/Block.js';
+import { Block, createCharacterTexture } from '../game/Block.js';
 import { AimController } from '../game/AimController.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
@@ -34,6 +34,9 @@ export class GameScene {
     this.hasEnded = false;
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
     this.mailText = null;
+    // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
+    // ブロック単位で破棄すると他のブロックの文字まで消えるため、unmount()でまとめて破棄する
+    this.characterTextures = new Map();
   }
 
   // MailInputScene.onStartGame(mailText) から main.js を通じて渡される入力文字列を受け取る。
@@ -48,6 +51,7 @@ export class GameScene {
     this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
     this.activeBall = null;
+    this.characterTextures = new Map();
 
     this.canvas.style.display = 'block';
 
@@ -79,6 +83,10 @@ export class GameScene {
 
     this.blocks.forEach((block) => block.dispose());
     if (this.activeBall) this.activeBall.dispose();
+
+    // ブロック間で共有している文字テクスチャはここでまとめて破棄する
+    this.characterTextures.forEach((texture) => texture.dispose());
+    this.characterTextures.clear();
 
     this.canvas.style.display = 'none';
   }
@@ -159,14 +167,23 @@ export class GameScene {
     return Array.from(source).slice(0, MAX_MAIL_BLOCKS);
   }
 
-  _spawnBlock(labelText, row, col, cols, blockWidth, blockHeight) {
+  // 同じ文字は同じテクスチャを使い回す。24ブロック分を毎回描き直す必要はなく、
+  // 「の」「ご」のように頻出する文字ほど効く
+  _getCharacterTexture(character) {
+    let texture = this.characterTextures.get(character);
+    if (!texture) {
+      texture = createCharacterTexture(character);
+      this.characterTextures.set(character, texture);
+    }
+    return texture;
+  }
+
+  _spawnBlock(character, row, col, cols, blockWidth, blockHeight) {
     const block = new Block(
       this.physicsWorld,
       this.material,
-      labelText,
-      this.overlayRoot
+      this._getCharacterTexture(character)
     );
-    block.mesh.material.color.setHex(row % 2 === 0 ? 0xf2f2f2 : 0xe4e6f5);
     this.scene.add(block.mesh);
 
     const x = (col - (cols - 1) / 2) * blockWidth;
@@ -209,12 +226,6 @@ export class GameScene {
 
     this.blocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
-
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    this.blocks.forEach((block) =>
-      block.updateLabelPosition(this.camera, width, height)
-    );
 
     this._resolveBrokenBlocks();
     this._resolveActiveBall(deltaSeconds);
