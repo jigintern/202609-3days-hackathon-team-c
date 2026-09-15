@@ -1,11 +1,19 @@
 import * as THREE from 'three';
 import { clamp } from '../utils/helpers.js';
 
-const MAX_ELEVATION_DEG = 45; // 引き切ったときの最大仰角
+// 仰角は「引かない(0)」から「引き切り(1)」まで線形に上げる。
+// 空中の棒(y=6)の上に積んだ壁(高さ約6.15〜10.9)を、発射地点(25m先)から
+// 狙える仰角を物理シミュレーションで実測し、14〜28度の範囲にした：
+// 14度で壁の下端よりやや低く(素通り)、28度で壁の頂点よりやや高く(頭上を越える)着弾し、
+// その間(だいたい引き量0.3〜0.9)で壁のどこかに当たる。壁の高さやカメラを変えたら
+// ここも実測し直すこと（角度の理論値と実測値はダンピングの影響でずれる）
+const MIN_ELEVATION_DEG = 14;
+const MAX_ELEVATION_DEG = 28;
 const DRAG_RANGE_RATIO = 0.35; // 画面高さに対する、パワー/仰角が最大になるまでの縦ドラッグ量の割合
-// 引き幅がタワー(約11m先・高さ5m前後)の下段から上段までを一通り狙える範囲になるよう調整した値。
-// 「もっと山なりに」「もっと直線的に」を変えたいときはここと MAX_ELEVATION_DEG を動かす
-const MIN_LAUNCH_POWER = 40;
+// パワーの変化幅はわずかにとどめている。仰角と一緒にパワーまで大きく振ると、
+// 着弾高さが引き量に対して敏感になりすぎて、指1本の精度では壁のどこにも当てられなくなる
+// （速度と角度を同時に上げるほど到達高さが跳ね上がるため）
+const MIN_LAUNCH_POWER = 85;
 const MAX_LAUNCH_POWER = 100;
 const MIN_PULL_RATIO = 0.03; // ほとんど引かずに離した場合は、誤クリックとみなして球を消費しない
 
@@ -103,9 +111,11 @@ export class AimController {
 
     this.powerPercent =
       MIN_LAUNCH_POWER + this.pullRatio * (MAX_LAUNCH_POWER - MIN_LAUNCH_POWER);
-    // 少し引いただけのときは低く速い直線的なショット（従来の転がして壊す球）が残るよう、
-    // 仰角は二次カーブで上げて、引き切ったときだけ大きく山なりにする
-    this.elevationDeg = this.pullRatio * this.pullRatio * MAX_ELEVATION_DEG;
+    // 仰角は引き量に比例させる（線形）。壁を狙うゲームでは、二次カーブで
+    // 低い引き量の仰角を潰すと球が壁の下を素通りする区間が広くなりすぎるため、
+    // 引き量と着弾位置の対応が直感的な線形にしてある
+    this.elevationDeg =
+      MIN_ELEVATION_DEG + this.pullRatio * (MAX_ELEVATION_DEG - MIN_ELEVATION_DEG);
 
     const elevationRad = THREE.MathUtils.degToRad(this.elevationDeg);
     const horizontalScale = Math.cos(elevationRad);
