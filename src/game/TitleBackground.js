@@ -25,19 +25,12 @@ const PEDESTAL_TOP_Y = PEDESTAL_SIZE.y;
 const BRICK_SPAWN_X_RANGE = [-3.5, 3.5];
 const BRICK_SPAWN_Z_RANGE = [-1.5, 1.5];
 
-const PADDLE_SIZE = new THREE.Vector3(2.6, 0.4, 0.6);
-const PADDLE_POSITION_Y = 0.5;
-const PADDLE_POSITION_Z = 5.5;
-const PADDLE_RANGE = 3.5;
-const PADDLE_SPEED = 0.7; // 往復の速さ（ラジアン/秒相当）
-
 // タイトル/メール入力画面の背景で、鉄球がレンガの山へ延々と飛び込み続けるアトラクトモード演出。
 // 青空と芝生でゲーム本編と統一感のある明るい屋外の雰囲気にする。
 export class TitleBackground {
-  constructor(canvas, renderer, overlayRoot) {
+  constructor(canvas, renderer) {
     this.canvas = canvas;
     this.renderer = renderer;
-    this.overlayRoot = overlayRoot;
     this.bricks = [];
     this.balls = [];
   }
@@ -87,18 +80,6 @@ export class TitleBackground {
     this.pedestalMesh.position.set(0, PEDESTAL_SIZE.y / 2, 0);
     this.scene.add(this.pedestalMesh);
 
-    // 左右に少しだけ揺れ動くパドル（見た目だけのブロック崩し風演出）
-    const paddleGeometry = new THREE.BoxGeometry(
-      PADDLE_SIZE.x,
-      PADDLE_SIZE.y,
-      PADDLE_SIZE.z
-    );
-    const paddleMaterial = new THREE.MeshStandardMaterial({ color: 0xf4f6ff });
-    this.paddleMesh = new THREE.Mesh(paddleGeometry, paddleMaterial);
-    this.paddleMesh.position.set(0, PADDLE_POSITION_Y, PADDLE_POSITION_Z);
-    this.scene.add(this.paddleMesh);
-    this._paddleTime = 0;
-
     this.physicsWorld = new PhysicsWorld();
     this.material = this.physicsWorld.defaultMaterial;
 
@@ -137,8 +118,6 @@ export class TitleBackground {
     this.balls.forEach((item) => this._disposeItem(item));
     this.bricks = [];
     this.balls = [];
-    this.paddleMesh.geometry.dispose();
-    this.paddleMesh.material.dispose();
     this.pedestalMesh.geometry.dispose();
     this.pedestalMesh.material.dispose();
     this.grassMesh.geometry.dispose();
@@ -147,10 +126,6 @@ export class TitleBackground {
   }
 
   update(deltaSeconds) {
-    this._paddleTime += deltaSeconds;
-    this.paddleMesh.position.x =
-      Math.sin(this._paddleTime * PADDLE_SPEED) * PADDLE_RANGE;
-
     this._brickTimer += deltaSeconds;
     this._ballTimer += deltaSeconds;
 
@@ -174,10 +149,6 @@ export class TitleBackground {
     this.bricks.forEach((item) => this._syncMesh(item));
     this.balls.forEach((item) => this._syncMesh(item));
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    this.bricks.forEach((item) => this._updateLabel(item, width, height));
-
     this._recycleOutOfBounds();
 
     this.renderer.render(this.scene, this.camera);
@@ -191,10 +162,16 @@ export class TitleBackground {
     );
     const color =
       BRICK_COLORS[Math.floor(Math.random() * BRICK_COLORS.length)];
-    const mesh = new THREE.Mesh(
-      geometry,
-      new THREE.MeshStandardMaterial({ color })
+    const char = DUMMY_CHARS[Math.floor(Math.random() * DUMMY_CHARS.length)];
+    // 6面のうち1面だけランダムに選び、そこにだけ文字テクスチャを貼る。
+    // 他の面は無地なので、回転で文字面がカメラを向いた時だけ読める
+    const charFaceIndex = Math.floor(Math.random() * 6);
+    const materials = Array.from({ length: 6 }, (_, i) =>
+      i === charFaceIndex
+        ? new THREE.MeshStandardMaterial({ map: this._createCharTexture(char, color) })
+        : new THREE.MeshStandardMaterial({ color })
     );
+    const mesh = new THREE.Mesh(geometry, materials);
 
     const body = new CANNON.Body({
       mass: 1,
@@ -216,13 +193,33 @@ export class TitleBackground {
     this.physicsWorld.addBody(body);
     this.scene.add(mesh);
 
-    const label = document.createElement('div');
-    label.className = 'brick-label';
-    label.textContent =
-      DUMMY_CHARS[Math.floor(Math.random() * DUMMY_CHARS.length)];
-    this.overlayRoot.appendChild(label);
+    this.bricks.push({ mesh, body });
+  }
 
-    this.bricks.push({ mesh, body, label });
+  // ブロックの地色を背景に、1文字を描いたcanvasからテクスチャを作る
+  _createCharTexture(char, colorHex) {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = `#${colorHex.toString(16).padStart(6, '0')}`;
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.font = '900 72px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = '#fff6e6';
+    ctx.fillText(char, size / 2, size / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
   }
 
   _spawnBall() {
@@ -251,22 +248,6 @@ export class TitleBackground {
     }
   }
 
-  // ブロック中央のダミー文字ラベルを、3D座標をスクリーン座標に投影して追従させる
-  _updateLabel(item, width, height) {
-    if (!item.label) return;
-    const projected = item.mesh.position.clone().project(this.camera);
-    const behindCamera = projected.z > 1;
-    if (behindCamera) {
-      item.label.style.display = 'none';
-      return;
-    }
-    item.label.style.display = 'block';
-    const x = (projected.x * 0.5 + 0.5) * width;
-    const y = (-projected.y * 0.5 + 0.5) * height;
-    item.label.style.left = `${x}px`;
-    item.label.style.top = `${y}px`;
-  }
-
   _recycleOutOfBounds() {
     this.bricks = this._filterOutOfBounds(this.bricks);
     this.balls = this._filterOutOfBounds(this.balls);
@@ -291,15 +272,18 @@ export class TitleBackground {
 
   _disposeItem(item) {
     this.scene.remove(item.mesh);
-    if (item.label) {
-      item.label.remove();
-    }
     if (typeof item.dispose === 'function') {
       item.dispose();
     } else {
       this.physicsWorld.removeBody(item.body);
       item.mesh.geometry.dispose();
-      item.mesh.material.dispose();
+      const materials = Array.isArray(item.mesh.material)
+        ? item.mesh.material
+        : [item.mesh.material];
+      materials.forEach((material) => {
+        material.map?.dispose();
+        material.dispose();
+      });
     }
   }
 

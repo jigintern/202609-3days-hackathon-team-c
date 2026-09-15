@@ -14,7 +14,7 @@ export class MailInputScene {
     this.onStartGame = onStartGame;
     this.onBack = onBack;
     // タイトル画面と同じ背景演出を流用し、画面が切り替わっても世界観がつながって見えるようにする
-    this.background = new TitleBackground(canvas, renderer, overlayRoot);
+    this.background = new TitleBackground(canvas, renderer);
 
     this._handleInput = this._handleInput.bind(this);
     this._handleStartClick = this._handleStartClick.bind(this);
