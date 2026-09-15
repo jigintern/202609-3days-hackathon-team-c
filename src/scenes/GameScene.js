@@ -44,11 +44,12 @@ const CAMERA_FRAME_PADDING = 1.3;
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/スコア判定をひとつにまとめる
 export class GameScene {
-  constructor({ canvas, renderer, overlayRoot, onGameOver }) {
+  constructor({ canvas, renderer, overlayRoot, onGameOver, onBackToTitle }) {
     this.canvas = canvas;
     this.renderer = renderer;
     this.overlayRoot = overlayRoot;
     this.onGameOver = onGameOver;
+    this.onBackToTitle = onBackToTitle;
 
     this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
@@ -93,7 +94,9 @@ export class GameScene {
     this._setupPhysics();
     this._setupTower();
 
-    this.hud = new HUD(this.overlayRoot);
+    this.hud = new HUD(this.overlayRoot, {
+      onBackToTitle: this.onBackToTitle,
+    });
     this.hud.show();
     this.hud.setScore(this.score);
     this.hud.setRemainingBalls(this.remainingBalls);
@@ -115,7 +118,7 @@ export class GameScene {
     this.aimController.dispose();
     this.trajectoryPreview.dispose();
     this.hud.hide();
-    this.hud.root.remove();
+    this.hud.dispose();
 
     this.blocks.forEach((block) => block.dispose());
     if (this.activeBall) this.activeBall.dispose();

@@ -226,6 +226,26 @@ body {
   text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
 }
 
+/* #hud は pointer-events: none なので、押せるようにするにはボタン側で戻す。
+   AimController は canvas に pointerdown を登録しているため、ボタンを押しても
+   canvas にイベントが届かず、狙いの操作とは干渉しない */
+.hud-exit {
+  pointer-events: auto;
+  padding: 6px 14px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: bold;
+  color: #f4f4f8;
+  background: rgba(10, 12, 24, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.hud-exit:hover {
+  background: rgba(10, 12, 24, 0.75);
+}
+
 .hud-power-gauge {
   position: absolute;
   bottom: 32px;
