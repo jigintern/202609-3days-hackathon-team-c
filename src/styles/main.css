@@ -28,10 +28,13 @@ body {
   pointer-events: none;
 }
 
-/* 各画面の共通レイアウト。表示中の画面だけ .is-active を付与する */
+/* 各画面の共通レイアウト。表示中の画面だけ .is-active を付与する。
+   z-indexは、タイトル/メール入力画面で背景に浮かぶブロックのダミー文字ラベル
+   （.brick-label）より必ず手前に来るようにするため */
 .screen {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: none;
   flex-direction: column;
   align-items: center;
@@ -46,11 +49,97 @@ body {
   display: flex;
 }
 
+/* タイトル画面のように背後の3D演出を見せたい画面は、全画面オーバーレイを外して
+   テキスト周りだけの半透明パネルに絞る */
+.screen-transparent {
+  background: transparent;
+}
+
+.title-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 40px 56px;
+  border-radius: 20px;
+  /* 背景が明るい青空・芝生になったため、以前より少し濃くしてコントラストを確保 */
+  background: rgba(8, 14, 20, 0.66);
+  backdrop-filter: blur(3px);
+  max-width: 90vw;
+}
+
 .screen h1 {
   font-size: 2.4rem;
   margin: 0;
   letter-spacing: 0.05em;
   text-shadow: 0 0 12px rgba(255, 90, 90, 0.6);
+}
+
+/* 「ドカン！」バッジと本タイトルをまとめる箱。バッジをタイトル左上に重ねて配置するための基準点。
+   本文の文字にバッジが被らないよう、左側にバッジ用の余白を確保する */
+.title-lockup {
+  position: relative;
+  display: inline-block;
+  margin-top: 40px;
+  padding-left: 64px;
+}
+
+/* タイトルロゴ本体: 白地に濃紺の縁取り＋下方向の影＋軽い発光。
+   明るい青空・芝生の背景でも読みやすいコントラストを優先した配色 */
+.title-panel h1 {
+  font-family: 'Arial Black', 'Impact', 'Hiragino Sans', sans-serif;
+  font-weight: 900;
+  color: #fff8e7;
+  -webkit-text-stroke: 3px #0b1440;
+  paint-order: stroke fill;
+  text-shadow:
+    3px 5px 0 rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(255, 184, 64, 0.6);
+}
+
+/* 「ドカン！」バースト: 漫画の効果音のような、爆発形の吹き出しバッジ */
+.title-burst {
+  position: absolute;
+  top: -46px;
+  left: 0;
+  transform: rotate(-14deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #7a1d00;
+  background: radial-gradient(
+    circle at 35% 30%,
+    #ffe14d,
+    #ff8a00 70%,
+    #ff5a1a 100%
+  );
+  clip-path: polygon(
+    50% 0%,
+    61% 18%,
+    82% 6%,
+    78% 28%,
+    100% 34%,
+    84% 50%,
+    100% 66%,
+    78% 72%,
+    82% 94%,
+    61% 82%,
+    50% 100%,
+    39% 82%,
+    18% 94%,
+    22% 72%,
+    0% 66%,
+    16% 50%,
+    0% 34%,
+    22% 28%,
+    18% 6%,
+    39% 18%
+  );
+  text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .screen p {
@@ -84,6 +173,40 @@ body {
 .btn-secondary {
   background: linear-gradient(180deg, #4a5568, #2d3341);
   box-shadow: 0 4px 0 #1a1e26;
+}
+
+/* メインアクションのボタン（スタート/ゲーム開始）: 白文字＋青背景、ホバーで光る */
+.btn-primary {
+  background: linear-gradient(180deg, #4b8bff, #1d4ed8);
+  box-shadow: 0 4px 0 #123a8f;
+  font-weight: bold;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 4px 0 #123a8f, 0 0 20px 4px rgba(75, 139, 255, 0.75);
+}
+
+.btn-primary:active {
+  box-shadow: 0 1px 0 #123a8f;
+}
+
+/* タイトル画面のSTARTボタンだけ、待機中に「Press Start」風の控えめな点滅を入れる */
+#btn-start {
+  animation: btn-start-blink 1.8s ease-in-out infinite;
+}
+
+#btn-start:hover {
+  animation: none;
+}
+
+@keyframes btn-start-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 /* ゲーム画面のHUD */
@@ -143,4 +266,65 @@ body {
   border-radius: 4px;
   pointer-events: none;
   white-space: pre-line;
+}
+
+/* タイトル/メール入力画面の背景レンガに表示するダミー1文字ラベル。
+   背景を透明にし、文字色＋濃い縁取りでレンガとのコントラストを確保する */
+.brick-label {
+  position: absolute;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #fff6e6;
+  text-shadow:
+    0 0 4px rgba(0, 0, 0, 0.85),
+    1px 1px 0 rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* メール本文入力画面 */
+.mail-input-panel {
+  width: min(90vw, 560px);
+}
+
+.mail-input-heading {
+  font-size: 1.8rem;
+  margin: 0;
+  color: #fff8e7;
+  text-shadow: 0 0 10px rgba(255, 184, 64, 0.5);
+}
+
+.mail-input-textarea {
+  width: 100%;
+  min-height: 140px;
+  padding: 12px 14px;
+  font-size: 1rem;
+  line-height: 1.6;
+  font-family: inherit;
+  color: #1a1a1a;
+  background: rgba(255, 255, 255, 0.95);
+  border: none;
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.mail-input-error {
+  margin: 0;
+  color: #ff8a8a;
+  font-size: 0.9rem;
+}
+
+.mail-input-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#btn-start-game:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  animation: none;
+  transform: none;
 }
