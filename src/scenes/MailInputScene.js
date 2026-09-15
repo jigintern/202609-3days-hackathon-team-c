@@ -7,7 +7,7 @@ const MAX_MAIL_LENGTH = 200;
 // メール本文入力画面。「1文字=1ブロック」としてゲーム側が使う文章を受け取るだけの画面。
 // ブロックの生成・配置は一切ここでは行わず、入力された文字列をそのまま
 // onStartGame(mailText) 経由でGameScene側へ渡す。改行や空白の扱い（詰めて表示する等）は
-// ゲーム側（GameScene._setupTower）の責務としている。詳細はREADMEを参照。
+// ゲーム側（GameScene._setupWall）の責務としている。詳細はREADMEを参照。
 export class MailInputScene {
   constructor({ canvas, renderer, overlayRoot, onStartGame, onBack }) {
     this.overlayRoot = overlayRoot;

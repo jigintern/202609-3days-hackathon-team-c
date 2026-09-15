@@ -4,11 +4,6 @@ import * as CANNON from 'cannon-es';
 // ブロックの実寸。タイトル画面の背景（TitleBackground）も同じ値を使うので、
 // ここを変えるとゲーム画面と背景の両方のブロックの大きさが変わる
 export const BLOCK_SIZE = new THREE.Vector3(1.4, 0.9, 1);
-const HIT_DURABILITY = 2; // 何回衝突判定を受けたら壊れるか
-const BALL_IMPACT_SPEED = 1.5; // ボールが当たったとみなす衝突速度
-// 崩れ落ちてきたブロックに潰されたとみなす衝突速度。タワーが自重で落ち着くときの
-// 接触（実測で最大2.5程度）で自壊しないよう、ボールより高い値を要求する
-const BLOCK_IMPACT_SPEED = 4;
 
 // 文字を焼き込むテクスチャの解像度。ブロックの手前面(1.4 x 0.9)と同じ縦横比にして、
 // 貼り付けたときに文字が横へ潰れないようにしている
@@ -94,12 +89,11 @@ export function createBlockMaterials(characterTexture) {
   ];
 }
 
-// メール本文の1文字を表すブロック。耐久値が尽きるとシーンから消える
+// メール本文の1文字を表すブロック。ブロックは壊れない。
+// 得点条件は「棒の上から落ちたかどうか」だけなので、耐久値も破壊判定も持たない
 export class Block {
   constructor(physicsWorld, material, characterTexture) {
     this.physicsWorld = physicsWorld;
-    this.durability = HIT_DURABILITY;
-    this.isDestroyed = false;
 
     const geometry = new THREE.BoxGeometry(
       BLOCK_SIZE.x,
@@ -117,19 +111,6 @@ export class Block {
       ),
       material,
     });
-
-    // 耐久値はボール、または支えを失って落ちてきた他のブロックとの強い衝突で減らす。
-    // 床のような静的（mass 0）なものとの接触では減らさない
-    this.body.addEventListener('collide', (event) => {
-      if (event.body.mass <= 0) return;
-      const impactSpeed = Math.abs(event.contact.getImpactVelocityAlongNormal());
-      const threshold = event.body.isBall
-        ? BALL_IMPACT_SPEED
-        : BLOCK_IMPACT_SPEED;
-      if (impactSpeed > threshold) {
-        this.durability -= 1;
-      }
-    });
   }
 
   spawnAt(position) {
@@ -140,10 +121,6 @@ export class Block {
   syncMeshToBody() {
     this.mesh.position.copy(this.body.position);
     this.mesh.quaternion.copy(this.body.quaternion);
-  }
-
-  get shouldBreak() {
-    return this.durability <= 0;
   }
 
   dispose() {

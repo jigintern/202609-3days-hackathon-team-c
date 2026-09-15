@@ -3,6 +3,7 @@ import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from '../game/PhysicsWorld.js';
 import { Ball } from '../game/Ball.js';
 import { Block, createCharacterTexture } from '../game/Block.js';
+import { Bar, BAR_TOP_Y, BAR_Y } from '../game/Bar.js';
 import { AimController } from '../game/AimController.js';
 import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
 import { HUD } from '../ui/HUD.js';
@@ -10,11 +11,28 @@ import { getRandomEmailText } from '../data/emailTexts.js';
 
 const TOTAL_BALLS = 8;
 const SCORE_PER_BLOCK = 100;
-const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
+// 発射地点。z がブロックの壁(z=0)までの距離そのもの。
+// 空中(y=6)の棒に積んだ壁は幅7.8m・高さ4.7mあり、これを縦画面に収めるにはカメラを
+// 21m以上引く必要がある。カメラを引くぶん球も届かなくなるので、発射地点と
+// Ball の MAX_LAUNCH_SPEED（届く距離は速度の2乗に比例）はセットで見直すこと
+const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 25);
 const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケースの保険
-const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
+const BALL_REST_SPEED = 0.8; // 棒の上でわずかに転がり続けるだけの状態を「静止」とみなす閾値
+// 外したボールを消す高さ。画面下端(z=0面で約-6.6m)より下で消して、
+// 消える瞬間がプレイヤーに見えないようにする
+const BALL_DESPAWN_Y = -8;
 
-// メール本文からブロックタワーを組む際の文字数上限（タワーが発散しないための目安。
+// 回収用の床の高さ。プレイヤーには見えない位置（画面下端よりはるか下・フォグの中）に置き、
+// 落ちたブロックがここへ着いた時点で破棄する。無限に落ち続けるボディを作らないための受け皿
+const FLOOR_Y = -20;
+// 床に着いたとみなす高さ。床との衝突イベントが主で、これは取りこぼし用の保険
+// （落ちたブロックの上に別のブロックが重なって着地した場合など）
+const FLOOR_LANDED_Y = FLOOR_Y + 2;
+// この高さより下に落ちたら「棒から落ちた」とみなして加点する。
+// 棒の上で横滑りしただけのブロックを誤って数えないよう、棒より1m下に置いてある
+const SCORE_FALL_Y = BAR_Y - 1;
+
+// メール本文からブロックの壁を組む際の文字数上限（壁が発散しないための目安。
 // 見た目やカメラ位置に合わせて調整可）
 const MAX_MAIL_BLOCKS = 24;
 
@@ -30,7 +48,10 @@ export class GameScene {
 
     this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
+    // まだ棒の上に残っていて加点していないブロック
     this.blocks = [];
+    // 棒から落ちて加点済みだが、まだ床に着いていない落下中のブロック
+    this.fallingBlocks = [];
     this.activeBall = null;
     this.hasEnded = false;
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
@@ -51,14 +72,19 @@ export class GameScene {
     this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
+    this.fallingBlocks = [];
     this.activeBall = null;
     this.characterTextures = new Map();
+    // 回収用の床に着いたボディの置き場。床のcollideイベントから積まれ、
+    // 毎フレームの _resolveLandedBlocks() で消化する
+    this.landedBodies = new Set();
 
     this.canvas.style.display = 'block';
 
     this._setupThree();
     this._setupPhysics();
-    this._setupTower();
+    this._setupBar();
+    this._setupWall();
 
     this.hud = new HUD(this.overlayRoot);
     this.hud.show();
@@ -85,6 +111,8 @@ export class GameScene {
     this.hud.root.remove();
 
     this.blocks.forEach((block) => block.dispose());
+    this.fallingBlocks.forEach((block) => block.dispose());
+    this.bar.dispose();
     if (this.activeBall) this.activeBall.dispose();
 
     // ブロック間で共有している文字テクスチャはここでまとめて破棄する
@@ -97,7 +125,8 @@ export class GameScene {
   _setupThree() {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1a1d2e);
-    this.scene.fog = new THREE.Fog(0x1a1d2e, 20, 40);
+    // 回収用の床(y=-20)がフォグに沈む距離から掛ける。カメラからそこまでは約40mある
+    this.scene.fog = new THREE.Fog(0x1a1d2e, 35, 50);
 
     this.camera = new THREE.PerspectiveCamera(
       50,
@@ -105,8 +134,12 @@ export class GameScene {
       0.1,
       100
     );
-    this.camera.position.set(0, 9, 14);
-    this.camera.lookAt(0, 2, 0);
+    // 棒(y=6)に積んだ壁は幅7.8m。縦画面(aspect≒0.46)でこれが収まるのは
+    // カメラ距離21m以上なので28mまで引いてある。
+    // lookAtは壁の中心(y≒8.5)より少し下を見て、壁を画面の上寄り・
+    // その下にブロックが落ちていく空間が入るように振っている
+    this.camera.position.set(0, 9, 28);
+    this.camera.lookAt(0, 7, 0);
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -114,32 +147,53 @@ export class GameScene {
     this.scene.add(ambient);
 
     const directional = new THREE.DirectionalLight(0xffffff, 1.0);
-    directional.position.set(6, 12, 8);
+    directional.position.set(6, 18, 8);
     directional.castShadow = true;
+    // 影を落とす対象が原点付近から空中の壁(y=6〜11)へ移ったので、
+    // ライトの注視点とシャドウカメラの範囲も一緒に持ち上げる。
+    // これを忘れると壁がシャドウカメラの外に出て影が消える
+    directional.target.position.set(0, BAR_Y + 2, 0);
+    this.scene.add(directional.target);
+    directional.shadow.camera.left = -8;
+    directional.shadow.camera.right = 8;
+    directional.shadow.camera.top = 8;
+    directional.shadow.camera.bottom = -8;
+    directional.shadow.camera.updateProjectionMatrix();
     this.scene.add(directional);
 
-    const floorGeometry = new THREE.PlaneGeometry(40, 40);
-    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2e42 });
-    this.floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
-    this.floorMesh.rotation.x = -Math.PI / 2;
-    this.floorMesh.receiveShadow = true;
-    this.scene.add(this.floorMesh);
+    // 床のメッシュは置かない。地面が無いぶん、落ちたブロックはそのまま
+    // 暗い背景の奥へ消えていく（回収用の床は物理だけで、画面には映らない位置にある）
   }
 
   _setupPhysics() {
     this.physicsWorld = new PhysicsWorld();
     this.material = this.physicsWorld.defaultMaterial;
 
+    // ステージには地面が無く、棒から落ちたブロックはどこまでも落ちていく。
+    // 物理ボディを無限に走らせ続けないよう、画面に映らない高さに回収用の床を敷き、
+    // ここへ着いたブロックを破棄する
     const floorBody = new CANNON.Body({
       mass: 0,
       shape: new CANNON.Plane(),
       material: this.material,
     });
     floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    floorBody.position.set(0, FLOOR_Y, 0);
+    floorBody.addEventListener('collide', (event) => {
+      this.landedBodies.add(event.body);
+    });
     this.physicsWorld.addBody(floorBody);
   }
 
-  _setupTower() {
+  _setupBar() {
+    this.bar = new Bar(this.physicsWorld, this.material);
+    this.scene.add(this.bar.mesh);
+  }
+
+  // 空中に浮いた棒の上にメールブロックの壁を積む。
+  // 壁そのものの組み方（列数・間隔）は床に積んでいた頃と同じで、
+  // 積み始める高さが棒の上面になった点だけが違う
+  _setupWall() {
     const blockWidth = 1.6;
     const blockHeight = 0.95;
 
@@ -190,7 +244,7 @@ export class GameScene {
     this.scene.add(block.mesh);
 
     const x = (col - (cols - 1) / 2) * blockWidth;
-    const y = blockHeight / 2 + row * blockHeight;
+    const y = BAR_TOP_Y + blockHeight / 2 + row * blockHeight;
     const z = 0;
     block.spawnAt(new THREE.Vector3(x, y, z));
 
@@ -214,7 +268,7 @@ export class GameScene {
 
   _isBallAtRest(ball, age) {
     const speed = ball.body.velocity.length();
-    const fellOffStage = ball.body.position.y < -5;
+    const fellOffStage = ball.body.position.y < BALL_DESPAWN_Y;
     const tookTooLong = age >= BALL_MAX_LIFETIME_SECONDS;
     return fellOffStage || speed < BALL_REST_SPEED || tookTooLong;
   }
@@ -239,35 +293,57 @@ export class GameScene {
     this.physicsWorld.step(deltaSeconds);
 
     this.blocks.forEach((block) => block.syncMeshToBody());
+    this.fallingBlocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
 
-    this._resolveBrokenBlocks();
+    this._resolveFallenBlocks();
+    this._resolveLandedBlocks();
     this._resolveActiveBall(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
   }
 
-  _resolveBrokenBlocks() {
-    const survivors = [];
+  // 棒より下へ落ちたブロックを見つけて加点する。ブロックは壊れないので、
+  // 得点手段はこの「落とす」だけ。加点したブロックは fallingBlocks へ移し、
+  // 二重に数えないようにする
+  _resolveFallenBlocks() {
+    const remaining = [];
     this.blocks.forEach((block) => {
-      if (block.shouldBreak) {
-        this.scene.remove(block.mesh);
-        block.dispose();
+      if (block.body.position.y < SCORE_FALL_Y) {
         this.score += SCORE_PER_BLOCK;
         this.hud.setScore(this.score);
+        this.fallingBlocks.push(block);
       } else {
-        survivors.push(block);
+        remaining.push(block);
       }
     });
 
-    // 落ち着いたタワーはcannon-esのスリープに入っていて、下のブロックが消えても
-    // 目を覚まさず宙に浮いたままになる。壊れたぶんだけ残りを起こして自然に崩落させる
-    if (survivors.length !== this.blocks.length) {
-      survivors.forEach((block) => block.body.wakeUp());
+    // 落ち着いた壁はcannon-esのスリープに入っていて、下のブロックが落ちても
+    // 目を覚まさず宙に浮いたままになる。落ちたぶんだけ残りを起こして自然に崩落させる
+    if (remaining.length !== this.blocks.length) {
+      remaining.forEach((block) => block.body.wakeUp());
     }
 
-    this.blocks = survivors;
+    this.blocks = remaining;
+  }
+
+  // 回収用の床まで落ちたブロックを破棄する。床のcollideイベントが主で、
+  // 先に落ちたブロックの上に着地してしまった場合に備えて高さでも拾う
+  _resolveLandedBlocks() {
+    if (this.fallingBlocks.length === 0) return;
+
+    this.fallingBlocks = this.fallingBlocks.filter((block) => {
+      const landed =
+        this.landedBodies.has(block.body) ||
+        block.body.position.y < FLOOR_LANDED_Y;
+      if (!landed) return true;
+
+      this.landedBodies.delete(block.body);
+      this.scene.remove(block.mesh);
+      block.dispose();
+      return false;
+    });
   }
 
   _resolveActiveBall(deltaSeconds) {
@@ -281,8 +357,12 @@ export class GameScene {
   }
 
   _checkGameOver() {
-    const cleared = this.blocks.length === 0;
-    const outOfAmmo = this.remainingBalls <= 0 && !this.activeBall;
+    // 落下中のブロックが残っているうちに結果画面へ飛ぶと、最後の一撃が
+    // 落ちきる前に画面が切り替わってしまう。球と落下中のブロックが
+    // 片付いてから終了する
+    const settled = !this.activeBall && this.fallingBlocks.length === 0;
+    const cleared = this.blocks.length === 0 && settled;
+    const outOfAmmo = this.remainingBalls <= 0 && settled;
     if (cleared || outOfAmmo) {
       this.hasEnded = true;
       this.onGameOver(this.score);

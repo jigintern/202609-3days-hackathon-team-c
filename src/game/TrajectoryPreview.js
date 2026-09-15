@@ -42,10 +42,9 @@ export class TrajectoryPreview {
     for (let i = 0; i < SAMPLE_COUNT; i += 1) {
       const t = (i / (SAMPLE_COUNT - 1)) * MAX_TIME_SECONDS;
       positions[i * 3] = origin.x + direction.x * speed * t;
-      positions[i * 3 + 1] = Math.max(
-        origin.y + direction.y * speed * t + 0.5 * GRAVITY_Y * t * t,
-        0
-      );
+      // 地面が無いステージなので、予測線もy=0で止めずにそのまま下へ伸ばす
+      positions[i * 3 + 1] =
+        origin.y + direction.y * speed * t + 0.5 * GRAVITY_Y * t * t;
       positions[i * 3 + 2] = origin.z + direction.z * speed * t;
     }
 

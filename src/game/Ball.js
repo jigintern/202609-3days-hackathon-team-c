@@ -3,7 +3,10 @@ import * as CANNON from 'cannon-es';
 import { clamp } from '../utils/helpers.js';
 
 const RADIUS = 0.35;
-export const MAX_LAUNCH_SPEED = 26;
+// 水平到達距離は速度の2乗に比例する。発射地点が11mから25m（約2.27倍）へ伸びたぶんを
+// sqrt(25/11)≒1.51倍の速度で補っている（26 → 40）。
+// 下げると最大パワーでも空中の壁に届かなくなる
+export const MAX_LAUNCH_SPEED = 40;
 
 // 鉄球。生成した瞬間は静止しており、launch()で狙った方向へパワーに応じた速度を与える
 export class Ball {
