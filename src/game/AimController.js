@@ -106,8 +106,8 @@ export class AimController {
 
     const rect = this.canvas.getBoundingClientRect();
     const dragRange = rect.height * DRAG_RANGE_RATIO;
-    const pulledUp = clamp(this.startClientY - currentClientY, 0, dragRange);
-    this.pullRatio = dragRange > 0 ? pulledUp / dragRange : 0;
+    const pulledDown = clamp(currentClientY - this.startClientY, 0, dragRange);
+    this.pullRatio = dragRange > 0 ? pulledDown / dragRange : 0;
 
     this.powerPercent =
       MIN_LAUNCH_POWER + this.pullRatio * (MAX_LAUNCH_POWER - MIN_LAUNCH_POWER);
