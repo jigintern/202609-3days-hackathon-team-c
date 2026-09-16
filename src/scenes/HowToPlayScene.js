@@ -7,18 +7,19 @@ export class HowToPlayScene {
     this.onSkip = onSkip;
 
     this.root = document.createElement('div');
-    this.root.className = 'screen';
+    this.root.className = 'screen howto-screen';
     this.root.innerHTML = `
-      <h1>遊び方</h1>
-      <p>
-        画面をドラッグして狙いを定めよう。<br />
-        そのまま上に引っ張ると、放物線が高く・強くなる。<br />
-        指を離すと、その角度と強さで鉄球が発射される。<br />
-        メールブロックは壊れない。空中に浮いた棒の上から
-        <strong>落とすと1個100点</strong>。<br />
-        棒の上を空にするか、球を全部使い切るとゲーム終了。
-      </p>
-      <button class="btn" id="btn-skip">はじめる</button>
+      <div class="howto-panel">
+        <h1>遊び方</h1>
+        <p>
+          画面をドラッグして狙いを定めよう。<br />
+          そのまま上に引っ張ると、放物線が高く・強くなる。<br />
+          指を離すと、その角度と強さで鉄球が発射される。<br />
+          棒の上のメールブロックを鉄球で落としていこう。<br />
+          棒の上を空にするか、球を全部使い切るとゲーム終了。
+        </p>
+        <button class="btn btn-primary" id="btn-skip">はじめる</button>
+      </div>
     `;
   }
 
