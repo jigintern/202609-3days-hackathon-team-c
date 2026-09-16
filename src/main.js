@@ -5,6 +5,7 @@ import { MailInputScene } from './scenes/MailInputScene.js';
 import { HowToPlayScene } from './scenes/HowToPlayScene.js';
 import { GameScene } from './scenes/GameScene.js';
 import { ResultScene } from './scenes/ResultScene.js';
+import { soundManager } from './audio/SoundManager.js';
 
 // 画面遷移の状態。文字列定数で管理するシンプルなステートマシン
 // TITLE →「スタート」→ MAIL_INPUT →「ゲーム開始」→ GAME という流れ
@@ -73,6 +74,9 @@ class App {
     if (this.currentScene) {
       this.currentScene.unmount();
     }
+    if (this.currentScreen === SCREEN.GAME && screen !== SCREEN.GAME) {
+      soundManager.stopBgm('game');
+    }
 
     if (screen === SCREEN.RESULT) {
       this.scenes[SCREEN.RESULT].setScore(payload.score ?? 0);
@@ -81,6 +85,7 @@ class App {
       // MAIL_INPUTを経由しなかった場合（遊び方からのスキップ等）はnullとなり、
       // GameScene側で従来のランダム文面フォールバックに切り替わる
       this.scenes[SCREEN.GAME].setMailText(payload.mailText ?? null);
+      soundManager.playBgm('game');
     }
 
     this.currentScreen = screen;
@@ -89,6 +94,7 @@ class App {
   }
 
   start() {
+    soundManager.preload();
     this.goTo(SCREEN.TITLE);
     requestAnimationFrame(this._tick);
   }
