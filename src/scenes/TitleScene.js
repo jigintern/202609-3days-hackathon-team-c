@@ -1,4 +1,5 @@
 import { TitleBackground } from '../game/TitleBackground.js';
+import { soundManager } from '../audio/SoundManager.js';
 
 // タイトル画面。スタート / 遊び方の2ボタンと、鉄球が封筒を吹き飛ばし続ける背景演出
 export class TitleScene {
@@ -28,10 +29,14 @@ export class TitleScene {
 
     this.overlayRoot.appendChild(this.root);
     this.root.classList.add('is-active');
-    this.root.querySelector('#btn-start').addEventListener('click', this.onStart);
-    this.root
-      .querySelector('#btn-howto')
-      .addEventListener('click', this.onShowHowTo);
+    this.root.querySelector('#btn-start').addEventListener('click', () => {
+      soundManager.play('click');
+      this.onStart();
+    });
+    this.root.querySelector('#btn-howto').addEventListener('click', () => {
+      soundManager.play('click');
+      this.onShowHowTo();
+    });
   }
 
   update(deltaSeconds) {

@@ -1,4 +1,5 @@
 import { TitleBackground } from '../game/TitleBackground.js';
+import { soundManager } from '../audio/SoundManager.js';
 
 // 入力欄が発散しないよう、ゲーム側に渡す文章の長さの目安をここで決めておく
 // （GameScene側のMAX_MAIL_BLOCKSと合わせて、両方で二重に上限をかけている）
@@ -18,6 +19,7 @@ export class MailInputScene {
 
     this._handleInput = this._handleInput.bind(this);
     this._handleStartClick = this._handleStartClick.bind(this);
+    this._handleBackClick = this._handleBackClick.bind(this);
 
     this.root = document.createElement('div');
     this.root.className = 'screen screen-transparent';
@@ -62,7 +64,7 @@ export class MailInputScene {
 
     this.textarea.addEventListener('input', this._handleInput);
     this.startButton.addEventListener('click', this._handleStartClick);
-    this.backButton.addEventListener('click', this.onBack);
+    this.backButton.addEventListener('click', this._handleBackClick);
   }
 
   update(deltaSeconds) {
@@ -73,7 +75,7 @@ export class MailInputScene {
     this.background.unmount();
     this.textarea.removeEventListener('input', this._handleInput);
     this.startButton.removeEventListener('click', this._handleStartClick);
-    this.backButton.removeEventListener('click', this.onBack);
+    this.backButton.removeEventListener('click', this._handleBackClick);
     this.root.remove();
   }
 
@@ -91,6 +93,12 @@ export class MailInputScene {
       this.errorText.hidden = false;
       return;
     }
+    soundManager.play('click');
     this.onStartGame(mailText);
+  }
+
+  _handleBackClick() {
+    soundManager.play('click');
+    this.onBack();
   }
 }
