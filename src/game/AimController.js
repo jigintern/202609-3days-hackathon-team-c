@@ -2,13 +2,17 @@ import * as THREE from 'three';
 import { clamp } from '../utils/helpers.js';
 
 // 仰角は「引かない(0)」から「引き切り(1)」まで線形に上げる。
-// 空中の棒(y=6)の上に積んだ壁(高さ約6.15〜10.9)を、発射地点(25m先)から
-// 狙える仰角を物理シミュレーションで実測し、14〜28度の範囲にした：
-// 14度で壁の下端よりやや低く(素通り)、28度で壁の頂点よりやや高く(頭上を越える)着弾し、
-// その間(だいたい引き量0.3〜0.9)で壁のどこかに当たる。壁の高さやカメラを変えたら
-// ここも実測し直すこと（角度の理論値と実測値はダンピングの影響でずれる）
+// 空中の棒(y=6)の上に積んだ壁(高さ約6.15〜11.85)と、その上を横切る鳥(y=13.8)の
+// 両方を1本の引き量に載せるため、物理シミュレーションで実測して14〜34度にした
+// （壁の高さ・カメラ・鳥の高さのどれかを変えたら実測し直すこと。角度の理論値と
+//   実測値はダンピングの影響でずれる）:
+// - 引き量0(14度)は壁の面を4.2mで通過＝壁の下を素通り
+// - 引き量0.20〜0.74で壁(6行)のどこかに当たる
+// - 引き量0.91(32.3度)で鳥のほぼ中心を撃ち抜く。鳥に当たるのは0.71〜1.00で、
+//   上限28度だった頃の「0.97以上＝ほぼ引き切り必須」から広げてある
+// - 引き量1.0(34度)は壁の面を14.85mで通過＝壁も鳥も越える
 const MIN_ELEVATION_DEG = 14;
-const MAX_ELEVATION_DEG = 28;
+const MAX_ELEVATION_DEG = 34;
 const DRAG_RANGE_RATIO = 0.35; // 画面高さに対する、パワー/仰角が最大になるまでの縦ドラッグ量の割合
 // パワーの変化幅はわずかにとどめている。仰角と一緒にパワーまで大きく振ると、
 // 着弾高さが引き量に対して敏感になりすぎて、指1本の精度では壁のどこにも当てられなくなる
@@ -17,14 +21,20 @@ const MIN_LAUNCH_POWER = 85;
 const MAX_LAUNCH_POWER = 100;
 const MIN_PULL_RATIO = 0.03; // ほとんど引かずに離した場合は、誤クリックとみなして球を消費しない
 
+// maxYawDeg を渡さなかった場合の左右角度の上限。
+// GameScene の MIN_AIM_YAW_DEG（壁が細いときに確保する下限）と同じ値にしてある
+const DEFAULT_MAX_YAW_DEG = 20;
+
 // ドラッグ&フリックで狙いを決める。指の水平位置（床面への視線交点）で左右・奥行きの方向を、
 // 縦方向にどれだけ引いたかで仰角とパワーを同時に決め、指を離した瞬間の値で発射する
 export class AimController {
-  constructor(canvas, camera, launchOrigin, onLaunch) {
+  // maxYawDeg: 正面(-Z)からの左右角度の上限（度）。壁の幅から GameScene が算出して渡す
+  constructor(canvas, camera, launchOrigin, onLaunch, maxYawDeg = DEFAULT_MAX_YAW_DEG) {
     this.canvas = canvas;
     this.camera = camera;
     this.launchOrigin = launchOrigin;
     this.onLaunch = onLaunch;
+    this.maxYawDeg = maxYawDeg;
 
     this.pointerNDC = new THREE.Vector2(0, 0);
     this.raycaster = new THREE.Raycaster();
@@ -130,7 +140,19 @@ export class AimController {
     if (horizontal.lengthSq() < 1e-6) {
       horizontal.set(0, 0, -1);
     }
-    horizontal.normalize();
+    // 左右の向きは「正面(-Z)から何度ずれているか」に直してから上限で丸める。
+    // 視線と水平面の交点をそのまま使うと、横長画面では画面端の視線が真横に近づき、
+    // 交点が発射地点のすぐ手前（11m先）に来るため、左右角度が際限なく開いてしまう
+    // （実測：スマホ390x844で最大±16度に対し、PC1920x950では±51度、
+    //   2560x700では±66度。球がほぼ真横＝プレイヤーの脇へ飛んでいく向きになる）。
+    // 壁を狙うのに必要なのは5列で±9度、17列でも±29度なので、それ以上は丸めて構わない
+    const yawDeg = THREE.MathUtils.radToDeg(
+      Math.atan2(horizontal.x, -horizontal.z)
+    );
+    const clampedYawRad = THREE.MathUtils.degToRad(
+      clamp(yawDeg, -this.maxYawDeg, this.maxYawDeg)
+    );
+    horizontal.set(Math.sin(clampedYawRad), 0, -Math.cos(clampedYawRad));
 
     const rect = this.canvas.getBoundingClientRect();
     const dragRange = rect.height * DRAG_RANGE_RATIO;

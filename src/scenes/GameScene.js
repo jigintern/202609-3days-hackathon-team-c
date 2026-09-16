@@ -49,6 +49,17 @@ const MAX_MAIL_BLOCKS = 100;
 const BLOCK_WIDTH = 1.6;
 const BLOCK_HEIGHT = 0.95;
 
+// 狙える左右角度の上限を決めるときに、壁の両端へ足す余裕(m)。
+// 端の列をぴったり上限にすると、端の1文字を狙うのに画面端まで指を動かす必要が
+// 出てしまうため、ブロック1個分ほど外側まで向けられるようにしてある
+const AIM_YAW_MARGIN = 2;
+// 壁が細いときでも確保する左右角度の下限。壁の幅だけで決めると、5列(幅8m)の壁では
+// ±13.5度＝壁の面で±6mしか狙えず、画面幅いっぱい(PCでは片側29.5m)を横切る鳥を
+// 狙える時間が8秒の横断のうち1.6秒しか無くなる。±20度＝壁の面で±9.1mまで広げると
+// 2.5秒に伸びる（スマホの縦画面なら横断の全域が狙える）。
+// この角度なら球は十分前方へ飛ぶので、横へ飛びすぎる問題は戻らない
+const MIN_AIM_YAW_DEG = 20;
+
 // 縦に積みすぎると棒の上で自重に負けて開始直後に崩れる。行数はここで頭打ちにし、
 // それ以上は列を増やして横に広げる（棒とカメラがその幅に追従する）
 const MAX_ROWS = 6;
@@ -245,7 +256,8 @@ export class GameScene {
       this.canvas,
       this.camera,
       LAUNCH_ORIGIN,
-      (direction, power) => this._launchBall(direction, power)
+      (direction, power) => this._launchBall(direction, power),
+      this._maxAimYawDeg()
     );
     this.trajectoryPreview = new TrajectoryPreview(this.scene);
     this.trajectoryPreview.setCameraDistanceScale(this.cameraDistanceScale);
@@ -340,6 +352,18 @@ export class GameScene {
     this.groundMesh.rotation.x = -Math.PI / 2;
     this.groundMesh.receiveShadow = true;
     this.scene.add(this.groundMesh);
+  }
+
+  // 球を飛ばせる左右角度の上限。壁の両端より AIM_YAW_MARGIN だけ外を狙える角度で止め、
+  // それ以上は横へ向けられないようにする。画面のアスペクト比に任せると、横長画面では
+  // 左右±50〜65度まで開いて球がプレイヤーの脇へ飛んでいってしまうため、
+  // 「壁に当てられる範囲」そのものを上限として与える。
+  // ただし壁が細いときは鳥を狙う余裕が無くなるので MIN_AIM_YAW_DEG を下限にする
+  _maxAimYawDeg() {
+    const wallYawDeg = THREE.MathUtils.radToDeg(
+      Math.atan2(this.wallWidth / 2 + AIM_YAW_MARGIN, LAUNCH_ORIGIN.z)
+    );
+    return Math.max(MIN_AIM_YAW_DEG, wallYawDeg);
   }
 
   // 壁の実寸が画面（の視野角）にちょうど収まるカメラ距離を、現在のアスペクト比から
