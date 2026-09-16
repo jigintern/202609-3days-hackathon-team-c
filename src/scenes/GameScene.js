@@ -157,6 +157,11 @@ const LETTER_BLAST_MIN_RADIUS = 7;
 const LETTER_BLAST_WIDTH_RATIO = 0.5;
 const LETTER_BLAST_IMPULSE = 12;
 
+// 鳥が現れる確率。1ゲームにつき1回、mount()時に抽選する。
+// 毎回必ず出ると隠し要素というより通常のギミックに見えてしまうので、
+// 「出ている回に気づけた人だけが狙える」ようにしている
+const BIRD_APPEAR_CHANCE = 0.5;
+
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/落下判定をひとつにまとめる
@@ -247,12 +252,14 @@ export class GameScene {
     // 衝撃波の輪をカメラへ正対させるため、カメラを渡す（_setupThree()で生成済み）
     this.explosionEffect = new ExplosionEffect(this.scene, this.camera);
 
-    // 隠し要素の鳥。開始と同時に飛び始め、画面を渡りきったら二度と現れない
+    // 隠し要素の鳥。開始と同時に飛び始め、画面を渡りきったら二度と現れない。
+    // 抽選に外れた回は start() を呼ばず、'idle' のまま置いておく
+    // （'idle' の鳥は描画も当たり判定も行われない）
     this.bird = new Bird(this.scene, {
       onLetterArrive: (position) => this._letterBlast(position),
     });
     this.bird.setHalfSpan(this.birdHalfSpan);
-    this.bird.start();
+    if (Math.random() < BIRD_APPEAR_CHANCE) this.bird.start();
 
     this._onResize = this._onResize.bind(this);
     window.addEventListener('resize', this._onResize);
