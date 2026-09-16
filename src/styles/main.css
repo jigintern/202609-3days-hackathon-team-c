@@ -9,6 +9,10 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  /* overflow:hidden だけでは Android Chrome のオーバースクロール
+     （引っ張りすぎたときのグロー / pull-to-refresh）は止まらず、
+     そちらにタッチを持っていかれる */
+  overscroll-behavior: none;
   background: #0d0f1a;
   font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
   color: #f4f4f8;
@@ -20,6 +24,18 @@ body {
   width: 100%;
   height: 100%;
   display: none;
+  /* 狙いを定める操作は「押して上へ縦ドラッグして離す」。Android Chrome は
+     スクロールできる要素が無くても、指が数px動いた時点でこれをスクロール
+     ジェスチャーとして確保し、pointercancel を投げて pointermove/pointerup を
+     止めてしまう。その結果 AimController が指を離したことを検知できず発射
+     されない。これを防ぐため canvas 上のタッチはブラウザに一切渡さない。
+     （iOS Safari はスクロール対象が無いとジェスチャーを確保しないので、
+     この指定が無くても発射できていた＝Android だけ壊れていた） */
+  touch-action: none;
+  /* 長押しによる選択やコールアウトでドラッグが中断されるのを防ぐ */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 #overlay-root {
@@ -651,5 +667,112 @@ body {
   }
   50% {
     box-shadow: 0 0 28px 4px rgba(255, 183, 3, 0.45);
+  }
+}
+
+/* ===== スマートフォン向けの調整 =====
+   タイトル画面はPC前提の余白（パネルの内側40px / バッジを避けるための
+   上96px / 各要素の間32px）で組んであり、そのままだと狭い画面では
+   見出しが3行以上に折り返して縦いっぱいを占めてしまう。
+   ここでは余白・文字サイズ・バッジの大きさをまとめて詰め、
+   タイトルからボタンまでが1画面に収まるようにする */
+@media (max-width: 600px) {
+  /* 想定外に内容が伸びたときでも操作ボタンへ手が届くよう、縦スクロールを許す。
+     画面端に余白を入れてパネルが端に貼り付かないようにする（タイトルの
+     文字サイズの計算でもこの16pxを前提にしている） */
+  .screen {
+    padding: 16px;
+    overflow-y: auto;
+    /* justify-content: center のままだと、はみ出したときに上端が
+       画面外へ出てスクロールで戻せなくなる。safe を付けて、収まらない
+       ときだけ上寄せに切り替える（未対応のブラウザではこの行だけ無視され、
+       既定の center がそのまま効く） */
+    justify-content: safe center;
+  }
+
+  .title-panel {
+    width: 100%;
+    max-width: 400px;
+    padding: 20px 20px 28px;
+    gap: 20px;
+    border-radius: 16px;
+  }
+
+  /* バッジもパネルの縮小に合わせて小さくし、角に寄せる */
+  .title-burst {
+    top: 10px;
+    left: 10px;
+    width: 56px;
+    height: 56px;
+    font-size: 0.72rem;
+  }
+
+  /* 見出しの開始位置は「バッジの下端(10+56) − パネルの上余白(20)」が下限。
+     少し余裕を持たせた値にして、バッジと文字が重ならないようにする */
+  .title-lockup {
+    margin-top: 48px;
+  }
+
+  /* タイトルを1行に収める。全角12文字＝12emちょうどなので、
+     使える横幅（画面幅 − .screen の左右余白16px×2 − パネルの内側20px×2 に
+     数pxの安全側の余裕を見た 76px を引いた値）を12で割れば必要な文字サイズになる。
+     パネルは最大400pxで頭打ちなので、上限の1.8remでそこに合わせる。
+     折り返して「クラッシャ / ー」と割れるのを防ぐのが狙い */
+  .title-panel h1 {
+    font-size: min(calc((100vw - 76px) / 12), 1.8rem);
+    letter-spacing: 0;
+    text-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  }
+
+  .title-panel p {
+    max-width: 100%;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  /* 指で押しやすいよう、幅はパネルいっぱいに広げつつ高さは詰める。
+     他の画面はボタンを横並びにしている（.result-actions など）ので、
+     幅を広げるのはタイトル画面の中だけに限る */
+  .title-panel .btn {
+    width: 100%;
+    max-width: 280px;
+    padding: 13px 24px;
+    font-size: 1rem;
+  }
+}
+
+/* 横向きのスマートフォンなど、縦が極端に短い画面。
+   幅の条件とは独立に効かせたいので、高さだけで判定する */
+@media (max-height: 520px) {
+  .title-panel {
+    padding: 16px 20px 20px;
+    gap: 12px;
+  }
+
+  .title-burst {
+    top: 8px;
+    left: 8px;
+    width: 48px;
+    height: 48px;
+    font-size: 0.65rem;
+  }
+
+  .title-lockup {
+    margin-top: 40px;
+  }
+
+  .title-panel h1 {
+    font-size: clamp(1.4rem, 5vh, 2.6rem);
+  }
+
+  /* 説明文は無くても遊べるので、縦が足りないときは行数を詰める */
+  .title-panel p {
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  .title-panel .btn {
+    padding: 10px 24px;
+    font-size: 0.95rem;
   }
 }

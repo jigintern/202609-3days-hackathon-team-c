@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from '../game/PhysicsWorld.js';
-import { Ball, RADIUS as BALL_RADIUS } from '../game/Ball.js';
+import { Ball, MAX_LAUNCH_SPEED, RADIUS as BALL_RADIUS } from '../game/Ball.js';
 import { Block, createCharacterTexture } from '../game/Block.js';
 import { Bar, BAR_TOP_Y, BAR_Y } from '../game/Bar.js';
 import {
@@ -15,6 +15,7 @@ import { ExplosionEffect } from '../game/ExplosionEffect.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
 import { soundManager } from '../audio/SoundManager.js';
+import { clamp } from '../utils/helpers.js';
 
 const TOTAL_BALLS = 8;
 // 発射地点。z がブロックの壁(z=0)までの距離そのもの。
@@ -120,11 +121,27 @@ const BOMB_WORDS = [
 const EXPLOSION_RADIUS = 6.0;
 const EXPLOSION_IMPULSE = 30;
 
-// 爆発に合わせてカメラを揺らす量（m）と、揺れが収まるまでの時間（秒）。
-// 揺れ幅は基準カメラ距離での見え方に合わせてあり、文字数が多くてカメラが
-// 引いているときは cameraDistanceScale を掛けて見かけの揺れを揃える
-const CAMERA_SHAKE_AMPLITUDE = 0.5;
-const CAMERA_SHAKE_DURATION = 0.4;
+// 衝撃に合わせてカメラを揺らす量（m）と、揺れが収まるまでの時間（秒）。
+// 揺れはカメラごとの平行移動なので、この振幅がそのまま画面上の移動量になる。
+// 基準距離(28m)では画面に高さ約26mぶんが映るので、2.6mは画面高の約10%にあたる。
+// 文字数が多くてカメラが引いているときは cameraDistanceScale を掛けて、
+// 画面上の見かけの揺れ幅を揃える
+const EXPLOSION_SHAKE_AMPLITUDE = 2.6;
+const EXPLOSION_SHAKE_DURATION = 0.45;
+
+// 球がブロックへ命中したときの揺れ。爆発の半分の強さ・短めの時間にして、
+// 当たった手応えは出しつつ爆発の一撃とは区別する。
+// 揺らすのは1投につき一度だけ。球はブロックのあいだで何度も跳ねるため、
+// 当たるたびに揺らすと揺れっぱなしになってブロックのメール本文が読めなくなる
+const HIT_SHAKE_AMPLITUDE = 1.3;
+const HIT_SHAKE_DURATION = 0.3;
+// これ未満の衝突は「かすった」だけとみなし、1投ぶんの揺れを使わない（m/s）
+const HIT_SHAKE_MIN_SPEED = 8;
+
+// 揺れに混ぜる画面の傾き。平行移動だけより一撃が硬く感じられる。
+// これは EXPLOSION_SHAKE_AMPLITUDE の揺れでの最大値で、弱い揺れでは比例して小さくなる。
+// 角度なのでカメラ距離には依らない（cameraDistanceScale を掛けない）
+const SHAKE_MAX_ROLL = THREE.MathUtils.degToRad(2);
 
 // 隠し要素。ゲーム開始時に一度だけ空を横切る鳥に球を当てると、鳥が落とした手紙が
 // タワーの中心で炸裂し、棒ごと消えて壁が丸ごと崩れ落ちる＝一発クリアになる。
@@ -159,8 +176,13 @@ export class GameScene {
     this.hasEnded = false;
     // カメラを引いた比。_applyCameraFraming()が実際の値を入れる
     this.cameraDistanceScale = 1;
-    // 爆発によるカメラの揺れの経過時間。CAMERA_SHAKE_DURATION 以上なら揺れていない
-    this.cameraShakeTime = CAMERA_SHAKE_DURATION;
+    // カメラの揺れの状態。cameraShakeTime が cameraShakeDuration 以上なら揺れていない。
+    // 実際の値は _shakeCamera() が入れる
+    this.cameraShakeTime = 0;
+    this.cameraShakeDuration = 0;
+    this.cameraShakeAmplitude = 0;
+    // 揺れているあいだの注視点を組み立てる作業用。毎フレーム生成しないよう使い回す
+    this.shakeLookAt = new THREE.Vector3();
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
     this.mailText = null;
     // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
@@ -177,7 +199,9 @@ export class GameScene {
   mount() {
     this.hasEnded = false;
     this.remainingBalls = TOTAL_BALLS;
-    this.cameraShakeTime = CAMERA_SHAKE_DURATION;
+    this.cameraShakeTime = 0;
+    this.cameraShakeDuration = 0;
+    this.cameraShakeAmplitude = 0;
     this.blocks = [];
     this.fallingBlocks = [];
     this.activeBall = null;
@@ -605,8 +629,24 @@ export class GameScene {
     const ball = new Ball(this.physicsWorld, this.material);
     ball.spawnAt(LAUNCH_ORIGIN);
     ball.launch(direction, power);
+    // この投擲でもう揺らしたか。1投=1回に絞るためのフラグ
+    let hasShakenOnHit = false;
     ball.body.addEventListener('collide', (event) => {
-      if (event.body.isBlock) soundManager.play('impact');
+      if (!event.body.isBlock) return;
+      soundManager.play('impact');
+
+      if (hasShakenOnHit) return;
+      // めり込む向きの相対速度。かすっただけの接触ではこれが小さくなるので、
+      // 手応えのある最初の一撃だけを拾える
+      const impactSpeed = Math.abs(
+        event.contact?.getImpactVelocityAlongNormal() ?? 0
+      );
+      if (impactSpeed < HIT_SHAKE_MIN_SPEED) return;
+      hasShakenOnHit = true;
+
+      // 最大速度で当たれば HIT_SHAKE_AMPLITUDE、弱い当たりはそのぶん控えめに
+      const strength = clamp(impactSpeed / MAX_LAUNCH_SPEED, 0, 1);
+      this._shakeCamera(HIT_SHAKE_AMPLITUDE * strength, HIT_SHAKE_DURATION);
     });
     this.scene.add(ball.mesh);
     this.activeBall = ball;
@@ -772,7 +812,7 @@ export class GameScene {
   _explode(origin, radius = EXPLOSION_RADIUS, impulse = EXPLOSION_IMPULSE) {
     this.explosionEffect.spawnAt(origin, radius);
     // 同時に複数が爆発しても揺れは重ねず、最初から振り直す
-    this.cameraShakeTime = 0;
+    this._shakeCamera(EXPLOSION_SHAKE_AMPLITUDE, EXPLOSION_SHAKE_DURATION);
 
     const targets = [...this.blocks, this.activeBall].filter(Boolean);
 
@@ -797,23 +837,57 @@ export class GameScene {
     });
   }
 
-  // 爆発の衝撃をカメラの揺れで伝える。周波数の違う2つの振動を縦横に当て、
-  // 振幅は残り時間の2乗で減衰させて「一撃が強く、すぐ収まる」形にする。
-  // 揺らすのは位置だけで注視点は動かさないので、壁は画面内に留まる
+  // 揺れを起こす。すでに揺れている最中なら、その瞬間の残り振幅と比べて
+  // 強いほうを採る。命中と同時に爆弾が起爆したとき、弱い命中の揺れで
+  // 爆発の一撃が上書きされてしまうのを防ぐため
+  _shakeCamera(amplitude, durationSeconds) {
+    if (amplitude <= this._currentShakeAmplitude()) return;
+
+    this.cameraShakeTime = 0;
+    this.cameraShakeDuration = durationSeconds;
+    this.cameraShakeAmplitude = amplitude;
+  }
+
+  // 減衰を織り込んだ、いまこの瞬間の揺れ幅（m）。揺れていなければ0
+  _currentShakeAmplitude() {
+    if (this.cameraShakeTime >= this.cameraShakeDuration) return 0;
+
+    const progress = this.cameraShakeTime / this.cameraShakeDuration;
+    // 残り時間の2乗で減衰させて「一撃が強く、すぐ収まる」形にする。
+    // progressが1になったフレームで0になり、素の位置へぴたりと戻る
+    return this.cameraShakeAmplitude * (1 - progress) ** 2;
+  }
+
+  // 衝撃をカメラの揺れで伝える。周波数の違う2つの振動を縦横に当て、
+  // さらに周期の違う傾きを重ねて一撃を硬くする。
+  //
+  // 大事なのはカメラと注視点を「同じだけ」ずらす点。位置だけ動かして注視点を
+  // 固定すると、注視点と同じ奥行きにある壁は画面上でほとんど動かず（壁の端が
+  // わずかに流れるだけで）、揺れがほとんど伝わらない。見せたいのは壁が画面内で
+  // 揺れる絵なので、カメラごと平行移動させる
   _updateCameraShake(deltaSeconds) {
-    if (this.cameraShakeTime >= CAMERA_SHAKE_DURATION) return;
+    if (this.cameraShakeTime >= this.cameraShakeDuration) return;
 
     this.cameraShakeTime += deltaSeconds;
-    const progress = Math.min(1, this.cameraShakeTime / CAMERA_SHAKE_DURATION);
-    // progressが1になったフレームで振幅が0になり、素の位置へぴたりと戻る
-    const amplitude =
-      CAMERA_SHAKE_AMPLITUDE * this.cameraDistanceScale * (1 - progress) ** 2;
+    const shake = this._currentShakeAmplitude();
+    const amplitude = shake * this.cameraDistanceScale;
 
     const time = this.cameraShakeTime;
+    const offsetX = Math.sin(time * 54) * amplitude;
+    const offsetY = Math.sin(time * 43 + 1.7) * amplitude * 0.8;
+
     this.camera.position.copy(this.cameraBasePosition);
-    this.camera.position.x += Math.sin(time * 54) * amplitude;
-    this.camera.position.y += Math.sin(time * 43 + 1.7) * amplitude * 0.8;
-    this.camera.lookAt(this.cameraLookAt);
+    this.camera.position.x += offsetX;
+    this.camera.position.y += offsetY;
+
+    this.shakeLookAt.copy(this.cameraLookAt);
+    this.shakeLookAt.x += offsetX;
+    this.shakeLookAt.y += offsetY;
+    this.camera.lookAt(this.shakeLookAt);
+
+    // lookAt() が姿勢を作り直した後に、視線を軸として画面を傾ける
+    const rollRatio = Math.min(1, shake / EXPLOSION_SHAKE_AMPLITUDE);
+    this.camera.rotateZ(Math.sin(time * 31 + 0.8) * SHAKE_MAX_ROLL * rollRatio);
   }
 
   // 回収用の床まで落ちたブロックを破棄する。床のcollideイベントが主で、

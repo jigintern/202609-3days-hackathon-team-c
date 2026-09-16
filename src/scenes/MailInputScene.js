@@ -18,6 +18,8 @@ export class MailInputScene {
     this.background = new TitleBackground(canvas, renderer);
 
     this._handleInput = this._handleInput.bind(this);
+    this._handleFocus = this._handleFocus.bind(this);
+    this._handleBlur = this._handleBlur.bind(this);
     this._handleStartClick = this._handleStartClick.bind(this);
     this._handleBackClick = this._handleBackClick.bind(this);
 
@@ -63,6 +65,8 @@ export class MailInputScene {
     this.startButton.disabled = true;
 
     this.textarea.addEventListener('input', this._handleInput);
+    this.textarea.addEventListener('focus', this._handleFocus);
+    this.textarea.addEventListener('blur', this._handleBlur);
     this.startButton.addEventListener('click', this._handleStartClick);
     this.backButton.addEventListener('click', this._handleBackClick);
   }
@@ -74,17 +78,35 @@ export class MailInputScene {
   unmount() {
     this.background.unmount();
     this.textarea.removeEventListener('input', this._handleInput);
+    this.textarea.removeEventListener('focus', this._handleFocus);
+    this.textarea.removeEventListener('blur', this._handleBlur);
     this.startButton.removeEventListener('click', this._handleStartClick);
     this.backButton.removeEventListener('click', this._handleBackClick);
     this.root.remove();
   }
 
+  // ゲーム開始ボタンが押せるのは「入力欄からフォーカスが外れている」ときだけ。
+  // 入力中に押せてしまうと、スマホではソフトキーボードに隠れたボタンを
+  // 手探りで叩くことになり、日本語入力なら変換の途中の文字がそのまま
+  // 渡ってしまう。いったん入力欄の外に出る＝入力を確定させる操作を挟ませる
   _handleInput() {
     const hasText = this.textarea.value.trim().length > 0;
-    this.startButton.disabled = !hasText;
-    if (hasText) {
+    // ここで有効化はしない（判定はblurに任せる）。
+    // ただし空になったときだけは、待たずにその場で押せなくする
+    if (!hasText) {
+      this.startButton.disabled = true;
+    } else {
       this.errorText.hidden = true;
     }
+  }
+
+  _handleFocus() {
+    // 入力し直している間は未確定として扱い、いったん押せない状態へ戻す
+    this.startButton.disabled = true;
+  }
+
+  _handleBlur() {
+    this.startButton.disabled = this.textarea.value.trim().length === 0;
   }
 
   _handleStartClick() {
