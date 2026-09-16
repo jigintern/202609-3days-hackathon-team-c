@@ -32,9 +32,38 @@ const FLOOR_LANDED_Y = FLOOR_Y + 2;
 // 棒の上で横滑りしただけのブロックを誤って数えないよう、棒より1m下に置いてある
 const SCORE_FALL_Y = BAR_Y - 1;
 
-// メール本文からブロックの壁を組む際の文字数上限（壁が発散しないための目安。
-// 見た目やカメラ位置に合わせて調整可）
-const MAX_MAIL_BLOCKS = 24;
+// メール本文からブロックの壁を組む際の文字数上限
+// （MailInputScene側のMAX_MAIL_LENGTHと揃えてある）
+const MAX_MAIL_BLOCKS = 100;
+
+const BLOCK_WIDTH = 1.6;
+const BLOCK_HEIGHT = 0.95;
+
+// 縦に積みすぎると棒の上で自重に負けて開始直後に崩れる。行数はここで頭打ちにし、
+// それ以上は列を増やして横に広げる（棒とカメラがその幅に追従する）
+const MAX_ROWS = 6;
+
+const CAMERA_FOV_DEG = 50;
+// 24文字（5行5列・幅8m）の壁を映していたときの位置と注視点。ここから向きと
+// 最短距離だけを取り出し、壁がこれより大きいときにカメラを後ろへ下げる
+const CAMERA_BASE_POSITION = new THREE.Vector3(0, 9, 28);
+const CAMERA_BASE_LOOK_AT = new THREE.Vector3(0, 7, 0);
+const CAMERA_BASE_DISTANCE =
+  CAMERA_BASE_POSITION.distanceTo(CAMERA_BASE_LOOK_AT);
+const CAMERA_DIRECTION = CAMERA_BASE_POSITION.clone()
+  .sub(CAMERA_BASE_LOOK_AT)
+  .normalize();
+// 壁の中心そのものではなく少し下を見る。壁を画面の上寄りに置いて、その下に
+// ブロックが落ちていく空間を残すため（元の lookAt y=7 を再現する差分）
+const CAMERA_LOOK_BELOW_WALL_CENTER = 1.5;
+// カメラは見下ろす角度がついているため、単純な視野角の計算では必要な距離を
+// 少し過小評価する。画面端で壁が切れないよう余裕を持たせておく
+const CAMERA_FRAME_PADDING = 1.3;
+
+// フォグはカメラ距離が CAMERA_BASE_DISTANCE のときの値。カメラを引くぶん
+// 比例して伸ばさないと、壁がフォグに沈んで見えなくなる
+const FOG_NEAR = 35;
+const FOG_FAR = 50;
 
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
@@ -80,6 +109,17 @@ export class GameScene {
     this.landedBodies = new Set();
 
     this.canvas.style.display = 'block';
+
+    // 行構成は棒の長さ・カメラ距離・壁のグリッドの全てに効くので、ここで一度だけ
+    // 確定させて使い回す（_buildRowsはランダム文面へのフォールバックを含み、
+    // 呼ぶたびに結果が変わり得るため二重に呼ばない）。
+    // 各行は同じ幅に揃え、足りない分は空白ブロックで埋めてあるので、
+    // どの段にも必ず下の支えがある
+    const { rows, wrapWidth } = this._buildRows();
+    this.rows = rows;
+    this.maxCols = wrapWidth;
+    this.wallWidth = this.maxCols * BLOCK_WIDTH;
+    this.wallHeight = this.rows.length * BLOCK_HEIGHT;
 
     this._setupThree();
     this._setupPhysics();
@@ -129,17 +169,13 @@ export class GameScene {
     this.scene.fog = new THREE.Fog(0x1a1d2e, 35, 50);
 
     this.camera = new THREE.PerspectiveCamera(
-      50,
+      CAMERA_FOV_DEG,
       window.innerWidth / window.innerHeight,
       0.1,
-      100
+      // 文字数が多いとカメラが100m近くまで下がるので、far も一緒に伸ばしておく
+      300
     );
-    // 棒(y=6)に積んだ壁は幅7.8m。縦画面(aspect≒0.46)でこれが収まるのは
-    // カメラ距離21m以上なので28mまで引いてある。
-    // lookAtは壁の中心(y≒8.5)より少し下を見て、壁を画面の上寄り・
-    // その下にブロックが落ちていく空間が入るように振っている
-    this.camera.position.set(0, 9, 28);
-    this.camera.lookAt(0, 7, 0);
+    this._applyCameraFraming();
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -154,15 +190,49 @@ export class GameScene {
     // これを忘れると壁がシャドウカメラの外に出て影が消える
     directional.target.position.set(0, BAR_Y + 2, 0);
     this.scene.add(directional.target);
-    directional.shadow.camera.left = -8;
-    directional.shadow.camera.right = 8;
-    directional.shadow.camera.top = 8;
-    directional.shadow.camera.bottom = -8;
+    // 壁が横に広がるとシャドウカメラの外に出て影が消えるので、幅に追従させる
+    const shadowExtent = Math.max(8, this.wallWidth / 2 + 2);
+    directional.shadow.camera.left = -shadowExtent;
+    directional.shadow.camera.right = shadowExtent;
+    directional.shadow.camera.top = shadowExtent;
+    directional.shadow.camera.bottom = -shadowExtent;
     directional.shadow.camera.updateProjectionMatrix();
     this.scene.add(directional);
 
     // 床のメッシュは置かない。地面が無いぶん、落ちたブロックはそのまま
     // 暗い背景の奥へ消えていく（回収用の床は物理だけで、画面には映らない位置にある）
+  }
+
+  // 壁の実寸が画面（の視野角）にちょうど収まるカメラ距離を、現在のアスペクト比から
+  // 逆算する。スマホの縦画面のように横方向の視野が狭いときは横幅基準の距離が、
+  // 横長画面では高さ基準の距離が効いてくる。
+  // 24文字のときは基準距離(28m)が下限として効くので、従来の見え方のまま変わらない
+  _applyCameraFraming() {
+    const verticalFov = THREE.MathUtils.degToRad(CAMERA_FOV_DEG);
+    const horizontalFov =
+      2 * Math.atan(Math.tan(verticalFov / 2) * this.camera.aspect);
+
+    const halfWidth = (this.wallWidth / 2) * CAMERA_FRAME_PADDING;
+    const halfHeight = (this.wallHeight / 2) * CAMERA_FRAME_PADDING;
+    const distance = Math.max(
+      CAMERA_BASE_DISTANCE,
+      halfWidth / Math.tan(horizontalFov / 2),
+      halfHeight / Math.tan(verticalFov / 2)
+    );
+
+    const lookAt = new THREE.Vector3(
+      0,
+      BAR_TOP_Y + this.wallHeight / 2 - CAMERA_LOOK_BELOW_WALL_CENTER,
+      0
+    );
+    this.camera.position
+      .copy(lookAt)
+      .addScaledVector(CAMERA_DIRECTION, distance);
+    this.camera.lookAt(lookAt);
+
+    const distanceScale = distance / CAMERA_BASE_DISTANCE;
+    this.scene.fog.near = FOG_NEAR * distanceScale;
+    this.scene.fog.far = FOG_FAR * distanceScale;
   }
 
   _setupPhysics() {
@@ -185,46 +255,86 @@ export class GameScene {
     this.physicsWorld.addBody(floorBody);
   }
 
+  // 棒の長さは壁の幅ぴったりにする。短いと端のブロックが棒に乗らず開始直後に
+  // 落ちてしまい、長いと端に何も乗っていない余りが見えてしまう
   _setupBar() {
-    this.bar = new Bar(this.physicsWorld, this.material);
+    this.bar = new Bar(this.physicsWorld, this.material, this.wallWidth);
     this.scene.add(this.bar.mesh);
   }
 
   // 空中に浮いた棒の上にメールブロックの壁を積む。
-  // 壁そのものの組み方（列数・間隔）は床に積んでいた頃と同じで、
+  // 壁そのものの組み方（行・列）は床に積んでいた頃と同じで、
   // 積み始める高さが棒の上面になった点だけが違う
   _setupWall() {
-    const blockWidth = 1.6;
-    const blockHeight = 0.95;
-
-    const characters = this._buildCharacters();
-    const cols = Math.max(1, Math.ceil(Math.sqrt(characters.length)));
-
-    characters.forEach((character, index) => {
-      const row = Math.floor(index / cols);
-      const col = index % cols;
-      this._spawnBlock(character, row, col, cols, blockWidth, blockHeight);
+    this.rows.forEach((rowChars, row) => {
+      rowChars.forEach((character, col) => {
+        this._spawnBlock(character, row, col);
+      });
     });
   }
 
-  // タワーに積む文字の配列を作る。「1文字=1ブロック」の組み方をここ1箇所に集約し、
-  // メール本文が渡されなかった場合（遊び方からゲームへ直行した場合など）も
-  // ランダムな文面を同じ手順で1文字ずつに分解する。
-  // 改行や空白（全角スペース含む）はブロックにしても意味がないため \s+ で取り除き、
-  // サロゲートペア（絵文字など）を割らないよう Array.from で分割する。
-  // 長すぎる入力は MAX_MAIL_BLOCKS 件までに切り詰めてタワーが発散しないようにしている。
-  _buildCharacters() {
-    const normalized = (this.mailText ?? '').replace(/\s+/g, '');
+  // 壁に積む行（文字の配列の配列）を作る。「1文字=1ブロック」の組み方を
+  // ここ1箇所に集約し、メール本文が渡されなかった場合（遊び方からゲームへ
+  // 直行した場合など）もランダムな文面を同じ手順で行分解する。
+  _buildRows() {
+    const primary = this._splitIntoRows(this.mailText ?? '');
     // 空白だけの入力でブロックが0個になると開始直後にゲームが終わってしまうため、
-    // 正規化した結果が空ならランダム文面に退避する
-    const source =
-      normalized.length > 0
-        ? normalized
-        : getRandomEmailText().replace(/\s+/g, '');
-    return Array.from(source).slice(0, MAX_MAIL_BLOCKS);
+    // 行が1つも残らなければランダム文面に退避する
+    return primary.rows.length > 0
+      ? primary
+      : this._splitIntoRows(getRandomEmailText());
   }
 
-  // 同じ文字は同じテクスチャを使い回す。24ブロック分を毎回描き直す必要はなく、
+  // 行の組み方をここ1箇所に集約している。
+  //
+  // - メール本文中の改行はそのまま新しい行の区切りとして扱う
+  // - 改行のない長い行は自動で折り返す。折り返し幅は総文字数の平方根から決め、
+  //   MAX_ROWS を超えて積み上がりそうなときは行を増やさず折り返し幅を広げる
+  // - 行内のスペース（全角含む）はブロックにしても意味がないため取り除く
+  // - サロゲートペア（絵文字など）を割らないよう Array.from で分割する
+  // - 全行を折り返し幅と同じ列数に揃え、足りない行は右側を空白ブロック
+  //   （文字なしのBlock）で埋める。行ごとに実際の文字数で中央寄せすると、
+  //   短い行の上に長い行が乗ったときに支えのないオーバーハングができて
+  //   自重で崩れてしまうため、必ず全行同じ列数・左詰めで配置する
+  // - MAX_MAIL_BLOCKS を超える入力は先頭から切り詰める（空白ブロックは数えない）
+  _splitIntoRows(text) {
+    const totalChars = Math.min(
+      MAX_MAIL_BLOCKS,
+      Array.from(text.replace(/\s+/g, '')).length
+    );
+    const wrapWidth = Math.max(
+      1,
+      Math.ceil(Math.sqrt(totalChars)),
+      Math.ceil(totalChars / MAX_ROWS)
+    );
+
+    const rows = [];
+    let remaining = MAX_MAIL_BLOCKS;
+
+    outer: for (const line of text.split(/\r\n|\r|\n/)) {
+      const lineChars = Array.from(line.replace(/\s+/g, ''));
+      for (let start = 0; start < lineChars.length; start += wrapWidth) {
+        if (remaining <= 0) break outer;
+        const chunk = lineChars
+          .slice(start, start + wrapWidth)
+          .slice(0, remaining);
+        rows.push(chunk);
+        remaining -= chunk.length;
+      }
+    }
+
+    const paddedRows = rows.map((row) => {
+      const padded = row.slice();
+      while (padded.length < wrapWidth) {
+        padded.push('');
+      }
+      return padded;
+    });
+
+    return { rows: paddedRows, wrapWidth };
+  }
+
+  // 同じ文字は同じテクスチャを使い回す。ブロック数ぶん毎回描き直す必要はなく、
   // 「の」「ご」のように頻出する文字ほど効く
   _getCharacterTexture(character) {
     let texture = this.characterTextures.get(character);
@@ -235,7 +345,7 @@ export class GameScene {
     return texture;
   }
 
-  _spawnBlock(character, row, col, cols, blockWidth, blockHeight) {
+  _spawnBlock(character, row, col) {
     const block = new Block(
       this.physicsWorld,
       this.material,
@@ -243,8 +353,8 @@ export class GameScene {
     );
     this.scene.add(block.mesh);
 
-    const x = (col - (cols - 1) / 2) * blockWidth;
-    const y = BAR_TOP_Y + blockHeight / 2 + row * blockHeight;
+    const x = (col - (this.maxCols - 1) / 2) * BLOCK_WIDTH;
+    const y = BAR_TOP_Y + BLOCK_HEIGHT / 2 + row * BLOCK_HEIGHT;
     const z = 0;
     block.spawnAt(new THREE.Vector3(x, y, z));
 
@@ -371,6 +481,8 @@ export class GameScene {
 
   _onResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
+    // 画面回転などでアスペクト比が変わると壁が収まる距離も変わるため引き直す
+    this._applyCameraFraming();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
