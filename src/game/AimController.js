@@ -25,11 +25,18 @@ const MIN_PULL_RATIO = 0.03; // ほとんど引かずに離した場合は、誤
 // GameScene の MIN_AIM_YAW_DEG（壁が細いときに確保する下限）と同じ値にしてある
 const DEFAULT_MAX_YAW_DEG = 20;
 
-// ドラッグ&フリックで狙いを決める。指の水平位置（床面への視線交点）で左右・奥行きの方向を、
+// ドラッグ&フリックで狙いを決める。触った位置（壁の面への視線交点）で左右の方向を、
 // 縦方向にどれだけ引いたかで仰角とパワーを同時に決め、指を離した瞬間の値で発射する
 export class AimController {
   // maxYawDeg: 正面(-Z)からの左右角度の上限（度）。壁の幅から GameScene が算出して渡す
-  constructor(canvas, camera, launchOrigin, onLaunch, maxYawDeg = DEFAULT_MAX_YAW_DEG) {
+  // aimPlaneZ: 狙いの基準にする垂直面のZ。ブロックの壁と同じ面を渡す
+  constructor(
+    canvas,
+    camera,
+    launchOrigin,
+    onLaunch,
+    { maxYawDeg = DEFAULT_MAX_YAW_DEG, aimPlaneZ = 0 } = {}
+  ) {
     this.canvas = canvas;
     this.camera = camera;
     this.launchOrigin = launchOrigin;
@@ -38,12 +45,18 @@ export class AimController {
 
     this.pointerNDC = new THREE.Vector2(0, 0);
     this.raycaster = new THREE.Raycaster();
-    // タワー中段の高さを通る水平面を狙い判定に使う（床面だと狙点が低すぎるため）
-    this.floorPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(0, launchOrigin.y, 0)
+    // 狙いの基準は「ブロックの壁と同じ垂直面」。水平面（床や発射地点の高さ）を
+    // 基準にすると、壁は地平線より上に映るので壁を触っても基準面に当たらず、
+    // そのうえ引くほど交点が手前へ動いて狙いが横へ滑っていく
+    // （スマホ縦で実測：真下に引くだけで壁の面で最大2.3m＝1.4列ぶんずれた）。
+    // 壁と同じ面で受ければ、触ったブロックをそのまま狙えて（誤差0.03〜0.15m）、
+    // 真下に引いたときのずれも0.09列に収まる
+    this.aimPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(0, 0, aimPlaneZ)
     );
-    this.aimPoint = new THREE.Vector3(0, 0, 0);
+    // 初期値は正面（壁の中央）。基準面上の点なので、1度目のドラッグでも破綻しない
+    this.aimPoint = new THREE.Vector3(0, 0, aimPlaneZ);
 
     this.isDragging = false;
     // ドラッグ中の指のID。2本目以降の指のイベントを無視して、狙いを乗っ取られ
@@ -123,13 +136,14 @@ export class AimController {
     this.powerPercent = 0;
   }
 
-  // 水平方向は指の位置と床面の交点から、垂直方向は押した位置からの縦ドラッグ量から求め、
+  // 左右は指の位置と壁の面の交点から、仰角とパワーは押した位置からの縦ドラッグ量から求め、
   // 1本の3D方向ベクトルにまとめる
   _updateAim(currentClientY) {
     this.raycaster.setFromCamera(this.pointerNDC, this.camera);
-    // 上に引くと視線が水平面より上を向いて交点が無くなる。その場合は直前の狙点を保つ
+    // カメラは壁へ向いているので基準面にはほぼ必ず当たるが、視線が面と平行に
+    // なった場合だけ交点が無くなる。そのときは直前の狙点を保つ
     const hit = this.raycaster.ray.intersectPlane(
-      this.floorPlane,
+      this.aimPlane,
       new THREE.Vector3()
     );
     if (hit) {
@@ -141,10 +155,10 @@ export class AimController {
       horizontal.set(0, 0, -1);
     }
     // 左右の向きは「正面(-Z)から何度ずれているか」に直してから上限で丸める。
-    // 視線と水平面の交点をそのまま使うと、横長画面では画面端の視線が真横に近づき、
-    // 交点が発射地点のすぐ手前（11m先）に来るため、左右角度が際限なく開いてしまう
-    // （実測：スマホ390x844で最大±16度に対し、PC1920x950では±51度、
-    //   2560x700では±66度。球がほぼ真横＝プレイヤーの脇へ飛んでいく向きになる）。
+    // 交点をそのまま使うと、横長画面では画面端の視線が真横に近づき、基準面上の
+    // 交点が壁からはるか外側へ飛ぶため、左右角度が際限なく開いてしまう
+    // （実測：スマホ390x844で最大±14度に対し、PC1920x950では±48度＝壁の面で27m外、
+    //   2560x700では±63度＝50m外。球がほぼ真横＝プレイヤーの脇へ飛んでいく向きになる）。
     // 壁を狙うのに必要なのは5列で±9度、17列でも±29度なので、それ以上は丸めて構わない
     const yawDeg = THREE.MathUtils.radToDeg(
       Math.atan2(horizontal.x, -horizontal.z)

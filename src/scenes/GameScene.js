@@ -48,6 +48,9 @@ const MAX_MAIL_BLOCKS = 100;
 
 const BLOCK_WIDTH = 1.6;
 const BLOCK_HEIGHT = 0.95;
+// ブロックの壁を並べる面のZ。AimController の狙いの基準面にも同じ値を渡していて、
+// 「触ったブロックをそのまま狙える」のはこの2つが同じ面だから成り立っている
+const WALL_Z = 0;
 
 // 狙える左右角度の上限を決めるときに、壁の両端へ足す余裕(m)。
 // 端の列をぴったり上限にすると、端の1文字を狙うのに画面端まで指を動かす必要が
@@ -257,7 +260,7 @@ export class GameScene {
       this.camera,
       LAUNCH_ORIGIN,
       (direction, power) => this._launchBall(direction, power),
-      this._maxAimYawDeg()
+      { maxYawDeg: this._maxAimYawDeg(), aimPlaneZ: WALL_Z }
     );
     this.trajectoryPreview = new TrajectoryPreview(this.scene);
     this.trajectoryPreview.setCameraDistanceScale(this.cameraDistanceScale);
@@ -356,7 +359,7 @@ export class GameScene {
 
   // 球を飛ばせる左右角度の上限。壁の両端より AIM_YAW_MARGIN だけ外を狙える角度で止め、
   // それ以上は横へ向けられないようにする。画面のアスペクト比に任せると、横長画面では
-  // 左右±50〜65度まで開いて球がプレイヤーの脇へ飛んでいってしまうため、
+  // 左右±48〜63度まで開いて球がプレイヤーの脇へ飛んでいってしまうため、
   // 「壁に当てられる範囲」そのものを上限として与える。
   // ただし壁が細いときは鳥を狙う余裕が無くなるので MIN_AIM_YAW_DEG を下限にする
   _maxAimYawDeg() {
@@ -644,8 +647,7 @@ export class GameScene {
       BAR_TOP_Y +
       BLOCK_HEIGHT / 2 +
       (this.rows.length - 1 - row) * BLOCK_HEIGHT;
-    const z = 0;
-    block.spawnAt(new THREE.Vector3(x, y, z));
+    block.spawnAt(new THREE.Vector3(x, y, WALL_Z));
 
     this.blocks.push(block);
   }
