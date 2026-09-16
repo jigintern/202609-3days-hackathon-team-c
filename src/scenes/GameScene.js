@@ -132,6 +132,8 @@ export class GameScene {
     this.fallingBlocks = [];
     this.activeBall = null;
     this.hasEnded = false;
+    // カメラを引いた比。_applyCameraFraming()が実際の値を入れる
+    this.cameraDistanceScale = 1;
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
     this.mailText = null;
     // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
@@ -189,6 +191,7 @@ export class GameScene {
       (direction, power) => this._launchBall(direction, power)
     );
     this.trajectoryPreview = new TrajectoryPreview(this.scene);
+    this.trajectoryPreview.setCameraDistanceScale(this.cameraDistanceScale);
     this.explosionEffect = new ExplosionEffect(this.scene);
 
     this._onResize = this._onResize.bind(this);
@@ -301,6 +304,11 @@ export class GameScene {
     const distanceScale = distance / CAMERA_BASE_DISTANCE;
     this.scene.fog.near = FOG_NEAR * distanceScale;
     this.scene.fog.far = FOG_FAR * distanceScale;
+
+    // 予測線のドットもカメラが引いたぶん小さくなるので、同じ比で大きくして
+    // 見かけの大きさを保つ。mount()中は生成前に呼ばれるので値も覚えておく
+    this.cameraDistanceScale = distanceScale;
+    this.trajectoryPreview?.setCameraDistanceScale(distanceScale);
   }
 
   _setupPhysics() {
