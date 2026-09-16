@@ -6,7 +6,7 @@ import { HowToPlayScene } from './scenes/HowToPlayScene.js';
 import { GameScene } from './scenes/GameScene.js';
 import { ResultScene } from './scenes/ResultScene.js';
 import { soundManager } from './audio/SoundManager.js';
-import { SoundToggle } from './ui/SoundToggle.js';
+import { SettingsMenu } from './ui/SettingsMenu.js';
 
 // 画面遷移の状態。文字列定数で管理するシンプルなステートマシン
 // TITLE →「スタート」→ MAIL_INPUT →「ゲーム開始」→ GAME という流れ
@@ -68,7 +68,9 @@ class App {
     };
 
     // 画面遷移(goTo)の対象外にするため、シーンの登録とは別に一度だけ生成する
-    this.soundToggle = new SoundToggle(this.overlayRoot);
+    this.settingsMenu = new SettingsMenu(this.overlayRoot, {
+      onBackToTitle: () => this.goTo(SCREEN.TITLE),
+    });
 
     this._lastTime = performance.now();
     this._tick = this._tick.bind(this);

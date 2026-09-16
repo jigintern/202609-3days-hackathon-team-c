@@ -1,6 +1,7 @@
 import { Howl, Howler } from 'howler';
 
 const MUTE_STORAGE_KEY = 'sound-muted';
+const VOLUME_STORAGE_KEY = 'sound-volume';
 
 const SOUND_CONFIG = {
   click: { src: ['/audio/click.wav'], volume: 0.7 },
@@ -20,9 +21,11 @@ class SoundManager {
     this.sounds = {};
     this.bgms = {};
     this._lastPlayedAt = {};
-    // Howler.mute()はグローバルなスイッチなので、Howlインスタンスがまだ無い
+    // Howler.mute()/volume()はグローバルなスイッチなので、Howlインスタンスがまだ無い
     // このタイミングで呼んでも、以後生成される効果音・BGMすべてに効く
     this.setMuted(localStorage.getItem(MUTE_STORAGE_KEY) === 'true');
+    const savedVolume = Number.parseFloat(localStorage.getItem(VOLUME_STORAGE_KEY));
+    this.setVolume(Number.isFinite(savedVolume) ? savedVolume : 1);
   }
 
   preload() {
@@ -73,6 +76,16 @@ class SoundManager {
 
   get isMuted() {
     return this._muted;
+  }
+
+  setVolume(volume) {
+    this._volume = Math.min(1, Math.max(0, volume));
+    Howler.volume(this._volume);
+    localStorage.setItem(VOLUME_STORAGE_KEY, String(this._volume));
+  }
+
+  get volume() {
+    return this._volume;
   }
 }
 
