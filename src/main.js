@@ -23,6 +23,8 @@ class App {
     this.overlayRoot = document.getElementById('overlay-root');
     this.currentScene = null;
     this.currentScreen = null;
+    // リザルト画面の「もう一度」で同じメール文面を再利用するために保持する
+    this._lastMailText = null;
 
     // 画面をまたいで使い回す唯一のWebGLRenderer。画面ごとに作り直すとcanvasの
     // コンテキストが競合するため、ここで一度だけ生成する
@@ -61,7 +63,7 @@ class App {
       }),
       [SCREEN.RESULT]: new ResultScene({
         overlayRoot: this.overlayRoot,
-        onRetry: () => this.goTo(SCREEN.GAME),
+        onRetry: () => this.goTo(SCREEN.GAME, { mailText: this._lastMailText }),
         onBackToTitle: () => this.goTo(SCREEN.TITLE),
       }),
     };
@@ -84,7 +86,8 @@ class App {
     if (screen === SCREEN.GAME) {
       // MAIL_INPUTを経由しなかった場合（遊び方からのスキップ等）はnullとなり、
       // GameScene側で従来のランダム文面フォールバックに切り替わる
-      this.scenes[SCREEN.GAME].setMailText(payload.mailText ?? null);
+      this._lastMailText = payload.mailText ?? null;
+      this.scenes[SCREEN.GAME].setMailText(this._lastMailText);
       soundManager.playBgm('game');
     }
 
