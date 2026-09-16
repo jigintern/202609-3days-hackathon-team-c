@@ -479,6 +479,58 @@ body {
   transform: none;
 }
 
+/* 遊び方画面: タイトル画面の空・芝生の配色を、動く3D演出なしの静止グラデーションで再現する */
+.howto-screen {
+  background: linear-gradient(
+    180deg,
+    #6fb8ea 0%,
+    #8ecbf0 56%,
+    #bfe3f7 60%,
+    #5fae4a 60%,
+    #4c8f3d 100%
+  );
+}
+
+/* タイトル画面のトーン（紺色パネル・見出し書体）を踏襲しつつ、
+   便箋の罫線と封筒のフラップ形状でメールらしさを足す。画像素材は使わない */
+.howto-panel {
+  position: relative;
+  width: min(90vw, 560px);
+  padding: 72px 40px 40px;
+  border-radius: 6px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 34px,
+      rgba(253, 246, 236, 0.1) 34px,
+      rgba(253, 246, 236, 0.1) 35px
+    ),
+    rgba(8, 14, 20, 0.78);
+  backdrop-filter: blur(3px);
+  overflow: hidden;
+}
+
+/* 封筒の開いたフラップに見立てた三角形。パネル上端の高さ内に収め、本文と重ならせない */
+.howto-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 72px;
+  background: rgba(253, 246, 236, 0.14);
+  clip-path: polygon(0 0, 100% 0, 50% 68%);
+}
+
+.howto-panel h1 {
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif;
+  font-weight: 900;
+  font-size: 2rem;
+  color: #fdf6ec;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
 /* リザルト画面の背景は、球を撃ち切った直後のゲーム画面のスナップショット
    （JS側で background-image をインラインで設定する）。.screen の既定の
    暗い単色オーバーレイのままだと背景が見えなくなるので、ここだけ薄い色に
