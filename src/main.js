@@ -54,7 +54,7 @@ class App {
       }),
       [SCREEN.HOWTO]: new HowToPlayScene({
         overlayRoot: this.overlayRoot,
-        onSkip: () => this.goTo(SCREEN.GAME),
+        onBackToTitle: () => this.goTo(SCREEN.TITLE),
       }),
       [SCREEN.GAME]: new GameScene({
         canvas: this.canvas,
