@@ -16,6 +16,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -29,3 +30,6 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=dokan-oinori-mail-crusher
+          # package.json で固定した wrangler をそのまま使い、再インストールを避ける
+          wranglerVersion: "4.132.0"
+          packageManager: npm
