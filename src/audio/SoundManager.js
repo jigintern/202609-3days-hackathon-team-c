@@ -10,7 +10,7 @@ const SOUND_CONFIG = {
 };
 
 const BGM_CONFIG = {
-  game: { src: ['/audio/bgm-game.ogg'], loop: true, volume: 0.35 },
+  game: { src: ['/audio/bgm-game.ogg'], loop: true, volume: 0.2 },
 };
 
 class SoundManager {
