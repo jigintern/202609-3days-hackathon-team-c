@@ -44,6 +44,10 @@ TITLE → 「スタート」 → MAIL_INPUT → 「ゲーム開始」 → GAME
 
 - `src/scenes/MailInputScene.js` がメール本文入力画面。ブロックの生成は一切行わず、
   入力文字列をトリムしたものを `onStartGame(mailText)` で渡すだけに徹している。
+- 「ゲーム開始」ボタンが押せるのは、入力欄からフォーカスが外れている（blur済みの）
+  ときだけ。入力中に押せてしまうと、スマホではソフトキーボードに隠れたボタンを
+  手探りで叩くことになり、日本語入力では変換途中の文字がそのまま渡ってしまうため、
+  「入力欄の外に出る＝入力を確定させる」操作を一度挟ませている。
 - `src/main.js` の `App.goTo()` が `onStartGame` の戻り先として
   `GameScene.setMailText(mailText)` を呼んでから `mount()` する
   （`ResultScene.setResult()` と同じ「mount前にsetterで値を渡す」パターン）。
