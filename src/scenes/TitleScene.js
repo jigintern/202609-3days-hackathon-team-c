@@ -9,6 +9,9 @@ export class TitleScene {
     this.onShowHowTo = onShowHowTo;
     this.background = new TitleBackground(canvas, renderer);
 
+    this._handleStartClick = this._handleStartClick.bind(this);
+    this._handleHowToClick = this._handleHowToClick.bind(this);
+
     this.root = document.createElement('div');
     this.root.className = 'screen screen-transparent';
     this.root.innerHTML = `
@@ -29,14 +32,10 @@ export class TitleScene {
 
     this.overlayRoot.appendChild(this.root);
     this.root.classList.add('is-active');
-    this.root.querySelector('#btn-start').addEventListener('click', () => {
-      soundManager.play('click');
-      this.onStart();
-    });
-    this.root.querySelector('#btn-howto').addEventListener('click', () => {
-      soundManager.play('click');
-      this.onShowHowTo();
-    });
+    this.startButton = this.root.querySelector('#btn-start');
+    this.howToButton = this.root.querySelector('#btn-howto');
+    this.startButton.addEventListener('click', this._handleStartClick);
+    this.howToButton.addEventListener('click', this._handleHowToClick);
   }
 
   update(deltaSeconds) {
@@ -45,6 +44,18 @@ export class TitleScene {
 
   unmount() {
     this.background.unmount();
+    this.startButton.removeEventListener('click', this._handleStartClick);
+    this.howToButton.removeEventListener('click', this._handleHowToClick);
     this.root.remove();
+  }
+
+  _handleStartClick() {
+    soundManager.play('click');
+    this.onStart();
+  }
+
+  _handleHowToClick() {
+    soundManager.play('click');
+    this.onShowHowTo();
   }
 }
