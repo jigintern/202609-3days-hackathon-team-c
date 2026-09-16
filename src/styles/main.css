@@ -9,6 +9,10 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  /* overflow:hidden だけでは Android Chrome のオーバースクロール
+     （引っ張りすぎたときのグロー / pull-to-refresh）は止まらず、
+     そちらにタッチを持っていかれる */
+  overscroll-behavior: none;
   background: #0d0f1a;
   font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
   color: #f4f4f8;
@@ -20,6 +24,18 @@ body {
   width: 100%;
   height: 100%;
   display: none;
+  /* 狙いを定める操作は「押して上へ縦ドラッグして離す」。Android Chrome は
+     スクロールできる要素が無くても、指が数px動いた時点でこれをスクロール
+     ジェスチャーとして確保し、pointercancel を投げて pointermove/pointerup を
+     止めてしまう。その結果 AimController が指を離したことを検知できず発射
+     されない。これを防ぐため canvas 上のタッチはブラウザに一切渡さない。
+     （iOS Safari はスクロール対象が無いとジェスチャーを確保しないので、
+     この指定が無くても発射できていた＝Android だけ壊れていた） */
+  touch-action: none;
+  /* 長押しによる選択やコールアウトでドラッグが中断されるのを防ぐ */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 #overlay-root {
