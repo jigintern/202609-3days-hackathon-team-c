@@ -8,6 +8,7 @@ import { AimController } from '../game/AimController.js';
 import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
+import { soundManager } from '../audio/SoundManager.js';
 
 const TOTAL_BALLS = 8;
 const SCORE_PER_BLOCK = 100;
@@ -261,9 +262,13 @@ export class GameScene {
     const ball = new Ball(this.physicsWorld, this.material);
     ball.spawnAt(LAUNCH_ORIGIN);
     ball.launch(direction, power);
+    ball.body.addEventListener('collide', (event) => {
+      if (event.body.isBlock) soundManager.playImpact();
+    });
     this.scene.add(ball.mesh);
     this.activeBall = ball;
     this.activeBallAge = 0;
+    soundManager.play('launch');
   }
 
   _isBallAtRest(ball, age) {
@@ -365,6 +370,7 @@ export class GameScene {
     const outOfAmmo = this.remainingBalls <= 0 && settled;
     if (cleared || outOfAmmo) {
       this.hasEnded = true;
+      soundManager.play('gameover');
       this.onGameOver(this.score);
     }
   }
