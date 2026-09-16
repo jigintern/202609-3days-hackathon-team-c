@@ -1,7 +1,15 @@
 import { Howl, Howler } from 'howler';
 
 const MUTE_STORAGE_KEY = 'sound-muted';
-const VOLUME_STORAGE_KEY = 'sound-volume';
+// 保存キーに世代(-v2)を付けている。以前は起動時の既定値もそのまま保存していたため、
+// キーを据え置くと「一度でも開いたことのあるブラウザだけ以前の既定値(最大音量)のまま」
+// になってしまう。既定値を変えたこの回で世代を上げ、全員が新しい既定値から始まるようにする
+const VOLUME_STORAGE_KEY = 'sound-volume-v2';
+const LEGACY_VOLUME_STORAGE_KEY = 'sound-volume';
+
+// 初期音量。いきなり最大で鳴ると驚くので半分から始める。
+// 設定メニューでユーザーが動かした値は保存され、次回以降そちらが優先される
+const DEFAULT_VOLUME = 0.5;
 
 const SOUND_CONFIG = {
   click: { src: ['/audio/click.wav'], volume: 0.7 },
@@ -22,10 +30,15 @@ class SoundManager {
     this.bgms = {};
     this._lastPlayedAt = {};
     // Howler.mute()/volume()はグローバルなスイッチなので、Howlインスタンスがまだ無い
-    // このタイミングで呼んでも、以後生成される効果音・BGMすべてに効く
-    this.setMuted(localStorage.getItem(MUTE_STORAGE_KEY) === 'true');
+    // このタイミングで呼んでも、以後生成される効果音・BGMすべてに効く。
+    // ここでは保存はしない（set系と違って、ユーザーが選んだ値ではないため）。
+    // 既定値をそのまま保存してしまうと、次に既定値を変えたときに
+    // 「前に開いたことのある人にだけ効かない」変更になってしまう
+    this._applyMuted(localStorage.getItem(MUTE_STORAGE_KEY) === 'true');
     const savedVolume = Number.parseFloat(localStorage.getItem(VOLUME_STORAGE_KEY));
-    this.setVolume(Number.isFinite(savedVolume) ? savedVolume : 1);
+    this._applyVolume(Number.isFinite(savedVolume) ? savedVolume : DEFAULT_VOLUME);
+    // 使わなくなった旧キーは残しておいても意味がないので消す
+    localStorage.removeItem(LEGACY_VOLUME_STORAGE_KEY);
   }
 
   preload() {
@@ -69,9 +82,8 @@ class SoundManager {
   }
 
   setMuted(muted) {
-    this._muted = muted;
-    Howler.mute(muted);
-    localStorage.setItem(MUTE_STORAGE_KEY, String(muted));
+    this._applyMuted(muted);
+    localStorage.setItem(MUTE_STORAGE_KEY, String(this._muted));
   }
 
   get isMuted() {
@@ -79,13 +91,23 @@ class SoundManager {
   }
 
   setVolume(volume) {
-    this._volume = Math.min(1, Math.max(0, volume));
-    Howler.volume(this._volume);
+    this._applyVolume(volume);
     localStorage.setItem(VOLUME_STORAGE_KEY, String(this._volume));
   }
 
   get volume() {
     return this._volume;
+  }
+
+  // 保存を伴わない反映。起動時（既定値の適用）と set系（保存あり）で共用する
+  _applyMuted(muted) {
+    this._muted = muted;
+    Howler.mute(muted);
+  }
+
+  _applyVolume(volume) {
+    this._volume = Math.min(1, Math.max(0, volume));
+    Howler.volume(this._volume);
   }
 }
 
