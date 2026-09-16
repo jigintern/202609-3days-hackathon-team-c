@@ -15,7 +15,7 @@ export class HowToPlayScene {
         そのまま上に引っ張ると、放物線が高く・強くなる。<br />
         指を離すと、その角度と強さで鉄球が発射される。<br />
         メールブロックは壊れない。空中に浮いた棒の上から
-        <strong>落とすと1個100点</strong>。<br />
+        <strong>落として、メール本文を粉砕しよう</strong>。<br />
         棒の上を空にするか、球を全部使い切るとゲーム終了。
       </p>
       <button class="btn" id="btn-skip">はじめる</button>

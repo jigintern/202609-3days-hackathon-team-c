@@ -1,11 +1,11 @@
-// ゲームプレイ画面のスコア・残弾・パワーゲージ表示
+// ゲームプレイ画面の残弾・パワーゲージ表示。
+// スコアは持たない（このゲームは点数を競う遊びではないため）
 export class HUD {
   constructor(container) {
     this.root = document.createElement('div');
     this.root.id = 'hud';
     this.root.innerHTML = `
       <div class="hud-top">
-        <span id="hud-score">スコア: 0</span>
         <span id="hud-balls">残り球数: 0</span>
       </div>
       <div class="hud-power-gauge">
@@ -14,7 +14,6 @@ export class HUD {
     `;
     container.appendChild(this.root);
 
-    this.scoreEl = this.root.querySelector('#hud-score');
     this.ballsEl = this.root.querySelector('#hud-balls');
     this.powerFillEl = this.root.querySelector('#hud-power-fill');
   }
@@ -25,10 +24,6 @@ export class HUD {
 
   hide() {
     this.root.classList.remove('is-active');
-  }
-
-  setScore(score) {
-    this.scoreEl.textContent = `スコア: ${score}`;
   }
 
   setRemainingBalls(count) {

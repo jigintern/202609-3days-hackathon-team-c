@@ -109,13 +109,23 @@ export function createBlockMaterials(characterTexture, { isBomb = false } = {}) 
 }
 
 // メール本文の1文字を表すブロック。ブロックは壊れない。
-// 得点条件は「棒の上から落ちたかどうか」だけなので、耐久値も破壊判定も持たない。
+// 「棒から落ちたかどうか」だけで判定するので、耐久値も破壊判定も持たない。
 // isBombが立っているものだけ、球が当たったことを hitByBall で知らせる。
 // それを見て爆発させるのはGameSceneの責務（爆風の計算もあちら側）
 export class Block {
-  constructor(physicsWorld, material, characterTexture, { isBomb = false } = {}) {
+  // sourceIndex: このブロックの文字が元のメール本文（Array.from基準）の
+  // 何文字目だったか。行を揃えるための空白パディングのブロックはnullになる。
+  // GameSceneが棒から落ちた時点でこれを記録し、リザルト画面で
+  // 「どの文字を粉砕したか」を復元するのに使う
+  constructor(
+    physicsWorld,
+    material,
+    characterTexture,
+    { isBomb = false, sourceIndex = null } = {}
+  ) {
     this.physicsWorld = physicsWorld;
     this.isBomb = isBomb;
+    this.sourceIndex = sourceIndex;
     // 球が当たったかどうか。GameSceneが毎フレーム見て爆発させる
     this.hitByBall = false;
 
