@@ -19,6 +19,8 @@ export class Ball {
       metalness: 0.9,
       roughness: 0.2,
     });
+    // ブロックと同じ理由で、遠くへ飛んでもフォグで色が水色寄りにならないようにする
+    meshMaterial.fog = false;
     this.mesh = new THREE.Mesh(geometry, meshMaterial);
     this.mesh.castShadow = true;
 

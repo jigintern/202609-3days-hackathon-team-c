@@ -79,6 +79,10 @@ export function createBlockMaterials(characterTexture) {
     color: SIDE_COLOR,
     roughness: 0.9,
   });
+  // 遠くへ飛ばされてもフォグで水色に色が混ざらないよう、紙の色を保持する。
+  // 遠近感による見た目の縮小はパースペクティブカメラの効果だけで十分つく
+  faceMaterial.fog = false;
+  sideMaterial.fog = false;
   return [
     sideMaterial,
     sideMaterial,

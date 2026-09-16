@@ -154,6 +154,8 @@ export class GameScene {
     this.fallingBlocks.forEach((block) => block.dispose());
     this.bar.dispose();
     if (this.activeBall) this.activeBall.dispose();
+    this.groundMesh.geometry.dispose();
+    this.groundMesh.material.dispose();
 
     // ブロック間で共有している文字テクスチャはここでまとめて破棄する
     this.characterTextures.forEach((texture) => texture.dispose());
@@ -164,9 +166,11 @@ export class GameScene {
 
   _setupThree() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1d2e);
+    // タイトル画面(TitleBackground)と同じ水色。同じ紙色ブロックの見た目が
+    // この背景で視認性を確保できることは既にタイトル画面で確認済み
+    this.scene.background = new THREE.Color(0x8ecbf0);
     // 回収用の床(y=-20)がフォグに沈む距離から掛ける。カメラからそこまでは約40mある
-    this.scene.fog = new THREE.Fog(0x1a1d2e, 35, 50);
+    this.scene.fog = new THREE.Fog(0x8ecbf0, 35, 50);
 
     this.camera = new THREE.PerspectiveCamera(
       CAMERA_FOV_DEG,
@@ -179,10 +183,10 @@ export class GameScene {
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.9);
     this.scene.add(ambient);
 
-    const directional = new THREE.DirectionalLight(0xffffff, 1.0);
+    const directional = new THREE.DirectionalLight(0xfff3d6, 1.1);
     directional.position.set(6, 18, 8);
     directional.castShadow = true;
     // 影を落とす対象が原点付近から空中の壁(y=6〜11)へ移ったので、
@@ -199,8 +203,19 @@ export class GameScene {
     directional.shadow.camera.updateProjectionMatrix();
     this.scene.add(directional);
 
-    // 床のメッシュは置かない。地面が無いぶん、落ちたブロックはそのまま
-    // 暗い背景の奥へ消えていく（回収用の床は物理だけで、画面には映らない位置にある）
+    // タイトル画面と同じ緑の地面（見た目だけの背景装飾で、当たり判定は持たない）。
+    // カメラがやや見下ろす角度のため、深度を書き込むと落下中のブロックが
+    // y=0を過ぎた瞬間に地面の奥へ隠れてしまう（画面外に出る前に消えて見える）。
+    // それを避けるため、地面は深度バッファに書き込まない＝他のオブジェクトを
+    // 一切隠さない背景扱いにし、ブロックは画面外に出るまで手前に描画され続ける
+    const groundGeometry = new THREE.PlaneGeometry(120, 120);
+    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x5fae4a });
+    groundMaterial.depthWrite = false;
+    this.groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+    this.groundMesh.renderOrder = -1;
+    this.groundMesh.rotation.x = -Math.PI / 2;
+    this.groundMesh.receiveShadow = true;
+    this.scene.add(this.groundMesh);
   }
 
   // 壁の実寸が画面（の視野角）にちょうど収まるカメラ距離を、現在のアスペクト比から
