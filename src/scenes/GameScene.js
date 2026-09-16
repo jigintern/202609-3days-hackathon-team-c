@@ -354,7 +354,13 @@ export class GameScene {
     this.scene.add(block.mesh);
 
     const x = (col - (this.maxCols - 1) / 2) * BLOCK_WIDTH;
-    const y = BAR_TOP_Y + BLOCK_HEIGHT / 2 + row * BLOCK_HEIGHT;
+    // 行の並びは本文の先頭から順（row=0が最初の行）だが、壁は下から積み上がる
+    // 構造のため、そのままだと最初の行が最下段になり、上から下に読むと文章が
+    // 逆順になってしまう。段の高さを反転させて、最初の行が一番上に来るようにする
+    const y =
+      BAR_TOP_Y +
+      BLOCK_HEIGHT / 2 +
+      (this.rows.length - 1 - row) * BLOCK_HEIGHT;
     const z = 0;
     block.spawnAt(new THREE.Vector3(x, y, z));
 
