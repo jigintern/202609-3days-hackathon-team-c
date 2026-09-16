@@ -9,13 +9,19 @@ import * as THREE from 'three';
 // 画面の上端は同じz=0の面でおよそ19.7mあるので、文字どおり画面の上端に置くと
 // どう撃っても届かない。
 //
-// そこで「壁の面を通過する瞬間」を狙って判定できる z=0 に置き、高さは
-// 引き量0.9以上（ドラッグのほぼ引き切り）でだけ届く13.2mにした。
-// 6行の壁（いちばん高い構成）の上端が11.85mなので、その1.35m上を飛ぶ形になる。
+// そこで「壁の面を通過する瞬間」を狙って判定できる z=0 に置いてある。
+//
+// 高さ13.8mは、当たる上限ぎりぎりに寄せた値。判定半径2.25m(鳥1.9＋球0.35)を
+// 足した14.1mが物理的な天井で、そこを超えるとどう撃っても当たらなくなる。
+// 13.8mだと引き量0.97以上＝ほぼ引き切りが必須になり、横のズレも±1.02mしか
+// 許されない（横断8秒のとき、PCでタイミング±0.17秒）。
+// 当ててしまうとゲームが一瞬で終わるので、壁の上段を狙った外し球が偶然当たる
+// ことはなく、「鳥を撃つ」と決めて何度か試した人だけが当てられる難度にしてある。
+// 6行の壁（いちばん高い構成）の上端が11.85mなので、その1.95m上を飛ぶ形になる。
 //
 // 発射地点・MAX_LAUNCH_SPEED・仰角の範囲（AimController）のどれかを変えたら、
 // ここも軌道を計算し直すこと
-export const BIRD_Y = 13.2;
+export const BIRD_Y = 13.8;
 export const BIRD_Z = 0;
 // 当たり判定の半径（球の半径は含まない。GameScene側で足す）。
 // 鳥の見た目の差し渡し（翼幅2.8m＝半分で1.4m）より少しだけ大きい程度で、
@@ -29,13 +35,12 @@ export const BIRD_HIT_RADIUS = 1.9;
 // カメラが引いても小さくなりすぎず、当たり判定の大きさとも釣り合う
 const BIRD_SCALE = 2.0;
 
-// 画面を渡りきるのにかけたい時間（秒）と、そこから決まる速度の下限・上限。
-// 横長の画面ほど渡る距離が長くなるので単純な等時間だと速くなりすぎ、
-// 球の飛行時間(約0.85秒)ぶんの「見越し」が当たり判定の半径を超えてしまう。
-// 上限2.6m/sなら見越しは約2.2mで、判定半径とほぼ釣り合う
-const CROSS_SECONDS = 12;
-const MIN_SPEED = 1.6;
-const MAX_SPEED = 2.6;
+// 画面を渡りきるのにかける時間（秒）。速度ではなく時間を固定しているので、
+// 画面の縦横比が変わっても「画面上を横切る速さ」の見え方は揃う。
+// 横長の画面ほど実際の速度は上がり、球の飛行時間(約0.82秒)ぶんの「見越し」も
+// 増える（PCの1280x800でおよそ秒速6.0m・見越し4.9m）。
+// これが当てにくさの主な源になっている
+const CROSS_SECONDS = 8;
 
 // 画面の外から入って外へ抜けるための余白（m）
 export const BIRD_OFFSCREEN_MARGIN = 3;
@@ -43,8 +48,9 @@ export const BIRD_OFFSCREEN_MARGIN = 3;
 // はばたきの速さ(rad/s)と振り幅(rad)。ゆったり滑空して見える程度に抑えている
 const FLAP_SPEED = 6.5;
 const FLAP_AMPLITUDE = 0.5;
-// 上下にゆれる幅(m)と速さ(rad/s)。当たり判定の高さがぶれるので大きくしない
-const BOB_AMPLITUDE = 0.12;
+// 上下にゆれる幅(m)と速さ(rad/s)。引き切りの球と鳥の距離には0.25mしか
+// 余裕がないので、ここを大きくすると当たり外れが揺れ任せになってしまう
+const BOB_AMPLITUDE = 0.08;
 const BOB_SPEED = 1.3;
 
 // 命中後、驚いた鳥が飛び去るときの加速と上昇。画面外へ抜けたら消す
@@ -119,8 +125,10 @@ export class Bird {
     this.state = 'idle';
     this.age = 0;
     this.escapeAge = 0;
+    // どちらもsetHalfSpan()が実際の値で上書きする。start()より前に
+    // updateが回っても止まらないよう、仮の値を入れてある
     this.halfSpan = 20;
-    this.speed = MAX_SPEED;
+    this.speed = (this.halfSpan * 2) / CROSS_SECONDS;
     // +1なら左から右へ、-1なら右から左へ
     this.heading = 1;
 
@@ -230,11 +238,7 @@ export class Bird {
   // 画面の横幅（の半分＋余白）。GameSceneがカメラの画角から計算して渡す
   setHalfSpan(halfSpan) {
     this.halfSpan = halfSpan;
-    this.speed = THREE.MathUtils.clamp(
-      (halfSpan * 2) / CROSS_SECONDS,
-      MIN_SPEED,
-      MAX_SPEED
-    );
+    this.speed = (halfSpan * 2) / CROSS_SECONDS;
     // 飛び始める前なら、入場位置も新しい幅に合わせ直す
     if (this.state === 'idle') this._placeAtStart();
   }
