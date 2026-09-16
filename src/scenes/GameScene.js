@@ -3,6 +3,7 @@ import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from '../game/PhysicsWorld.js';
 import { Ball } from '../game/Ball.js';
 import { Block, createCharacterTexture } from '../game/Block.js';
+import { Bar, BAR_TOP_Y, BAR_Y } from '../game/Bar.js';
 import { AimController } from '../game/AimController.js';
 import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
 import { HUD } from '../ui/HUD.js';
@@ -10,35 +11,30 @@ import { getRandomEmailText } from '../data/emailTexts.js';
 
 const TOTAL_BALLS = 8;
 const SCORE_PER_BLOCK = 100;
-const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 11);
+// 発射地点。z がブロックの壁(z=0)までの距離そのもの。
+// 空中(y=6)の棒に積んだ壁は幅7.8m・高さ4.7mあり、これを縦画面に収めるにはカメラを
+// 21m以上引く必要がある。カメラを引くぶん球も届かなくなるので、発射地点と
+// Ball の MAX_LAUNCH_SPEED（届く距離は速度の2乗に比例）はセットで見直すこと
+const LAUNCH_ORIGIN = new THREE.Vector3(0, 1.5, 25);
 const BALL_MAX_LIFETIME_SECONDS = 3; // 稀に物理演算が収束しないケースの保険
-const BALL_REST_SPEED = 0.8; // 着地後わずかに転がり続けるだけの状態を「静止」とみなす閾値
+const BALL_REST_SPEED = 0.8; // 棒の上でわずかに転がり続けるだけの状態を「静止」とみなす閾値
+// 外したボールを消す高さ。画面下端(z=0面で約-6.6m)より下で消して、
+// 消える瞬間がプレイヤーに見えないようにする
+const BALL_DESPAWN_Y = -8;
 
-// メール本文からブロックタワーを組む際の文字数上限（タワーが発散しないための目安。
-// MailInputScene側のMAX_MAIL_LENGTH（textareaのmaxlength）と揃えてある）
-const MAX_MAIL_BLOCKS = 100;
+// 回収用の床の高さ。プレイヤーには見えない位置（画面下端よりはるか下・フォグの中）に置き、
+// 落ちたブロックがここへ着いた時点で破棄する。無限に落ち続けるボディを作らないための受け皿
+const FLOOR_Y = -20;
+// 床に着いたとみなす高さ。床との衝突イベントが主で、これは取りこぼし用の保険
+// （落ちたブロックの上に別のブロックが重なって着地した場合など）
+const FLOOR_LANDED_Y = FLOOR_Y + 2;
+// この高さより下に落ちたら「棒から落ちた」とみなして加点する。
+// 棒の上で横滑りしただけのブロックを誤って数えないよう、棒より1m下に置いてある
+const SCORE_FALL_Y = BAR_Y - 1;
 
-// ブロックはサイズを変えない（小さくすると距離を引いた分と相殺してかえって
-// 読みにくくなることを実機確認したため）。間隔もブロックサイズと同じ元の値のまま
-const BLOCK_WIDTH = 1.6;
-const BLOCK_HEIGHT = 0.95;
-
-// 縦に積みすぎると自重で崩れて開始直後にブロックが壊れてしまう（実機で10行の
-// 正方形タワーが自壊するのを確認済み）。行数はここで頭打ちにし、それ以上は
-// 列を増やして横に広げる
-const MAX_ROWS = 6;
-
-const CAMERA_FOV_DEG = 50;
-const CAMERA_LOOK_AT = new THREE.Vector3(0, 2, 0);
-const CAMERA_BASE_POSITION = new THREE.Vector3(0, 9, 14);
-const CAMERA_BASE_DISTANCE = CAMERA_BASE_POSITION.distanceTo(CAMERA_LOOK_AT);
-const CAMERA_DIRECTION = CAMERA_BASE_POSITION.clone()
-  .sub(CAMERA_LOOK_AT)
-  .normalize();
-// カメラが見下ろす角度になっている分、単純な視野角の計算だけでは必要な距離を
-// 少し過小評価してしまうため、余裕を持たせておく（スマホの縦画面で
-// タワーが画面端で切れるのを実機確認して調整した値）
-const CAMERA_FRAME_PADDING = 1.3;
+// メール本文からブロックの壁を組む際の文字数上限（壁が発散しないための目安。
+// 見た目やカメラ位置に合わせて調整可）
+const MAX_MAIL_BLOCKS = 24;
 
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
@@ -52,7 +48,10 @@ export class GameScene {
 
     this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
+    // まだ棒の上に残っていて加点していないブロック
     this.blocks = [];
+    // 棒から落ちて加点済みだが、まだ床に着いていない落下中のブロック
+    this.fallingBlocks = [];
     this.activeBall = null;
     this.hasEnded = false;
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
@@ -73,25 +72,19 @@ export class GameScene {
     this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
+    this.fallingBlocks = [];
     this.activeBall = null;
     this.characterTextures = new Map();
+    // 回収用の床に着いたボディの置き場。床のcollideイベントから積まれ、
+    // 毎フレームの _resolveLandedBlocks() で消化する
+    this.landedBodies = new Set();
 
     this.canvas.style.display = 'block';
 
-    // 行構成（＝ブロック数）はカメラ距離とタワーのグリッド両方に影響するため、
-    // ここで一度だけ確定させて両方に使い回す（_buildRowsはランダム文面への
-    // フォールバックを含み呼ぶたびに結果が変わり得るため、二重に呼ばない）。
-    // 各行は同じ幅（wrapWidth）に揃えてあり、足りない分は空白ブロックで埋めて
-    // あるので、行をまたいでも同じ列には必ず支えがある（自重で崩れない）
-    const { rows, wrapWidth } = this._buildRows();
-    this.rows = rows;
-    this.maxCols = wrapWidth;
-    this.towerWidth = this.maxCols * BLOCK_WIDTH;
-    this.towerHeight = this.rows.length * BLOCK_HEIGHT;
-
     this._setupThree();
     this._setupPhysics();
-    this._setupTower();
+    this._setupBar();
+    this._setupWall();
 
     this.hud = new HUD(this.overlayRoot);
     this.hud.show();
@@ -118,6 +111,8 @@ export class GameScene {
     this.hud.root.remove();
 
     this.blocks.forEach((block) => block.dispose());
+    this.fallingBlocks.forEach((block) => block.dispose());
+    this.bar.dispose();
     if (this.activeBall) this.activeBall.dispose();
 
     // ブロック間で共有している文字テクスチャはここでまとめて破棄する
@@ -130,15 +125,21 @@ export class GameScene {
   _setupThree() {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1a1d2e);
-    this.scene.fog = new THREE.Fog(0x1a1d2e, 20, 40);
+    // 回収用の床(y=-20)がフォグに沈む距離から掛ける。カメラからそこまでは約40mある
+    this.scene.fog = new THREE.Fog(0x1a1d2e, 35, 50);
 
     this.camera = new THREE.PerspectiveCamera(
-      CAMERA_FOV_DEG,
+      50,
       window.innerWidth / window.innerHeight,
       0.1,
-      300
+      100
     );
-    this._applyCameraFraming();
+    // 棒(y=6)に積んだ壁は幅7.8m。縦画面(aspect≒0.46)でこれが収まるのは
+    // カメラ距離21m以上なので28mまで引いてある。
+    // lookAtは壁の中心(y≒8.5)より少し下を見て、壁を画面の上寄り・
+    // その下にブロックが落ちていく空間が入るように振っている
+    this.camera.position.set(0, 9, 28);
+    this.camera.lookAt(0, 7, 0);
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -146,138 +147,84 @@ export class GameScene {
     this.scene.add(ambient);
 
     const directional = new THREE.DirectionalLight(0xffffff, 1.0);
-    directional.position.set(6, 12, 8);
+    directional.position.set(6, 18, 8);
     directional.castShadow = true;
+    // 影を落とす対象が原点付近から空中の壁(y=6〜11)へ移ったので、
+    // ライトの注視点とシャドウカメラの範囲も一緒に持ち上げる。
+    // これを忘れると壁がシャドウカメラの外に出て影が消える
+    directional.target.position.set(0, BAR_Y + 2, 0);
+    this.scene.add(directional.target);
+    directional.shadow.camera.left = -8;
+    directional.shadow.camera.right = 8;
+    directional.shadow.camera.top = 8;
+    directional.shadow.camera.bottom = -8;
+    directional.shadow.camera.updateProjectionMatrix();
     this.scene.add(directional);
 
-    const floorGeometry = new THREE.PlaneGeometry(40, 40);
-    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2e42 });
-    this.floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
-    this.floorMesh.rotation.x = -Math.PI / 2;
-    this.floorMesh.receiveShadow = true;
-    this.scene.add(this.floorMesh);
-  }
-
-  // タワーの実際の幅・高さが画面（の視野角）にちょうど収まるカメラ距離を、
-  // 現在のアスペクト比から逆算する。スマホの縦画面のように横方向の視野が狭い
-  // ときは横幅基準の距離が、通常の横長画面では高さ基準の距離が効いてくる。
-  // カメラは見下ろす角度がついているため正確な計算ではないが、
-  // CAMERA_FRAME_PADDINGで余裕を持たせて画面端で切れないようにしている
-  _applyCameraFraming() {
-    const aspect = this.camera.aspect;
-    const verticalFov = THREE.MathUtils.degToRad(CAMERA_FOV_DEG);
-    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
-
-    const halfWidth = (this.towerWidth / 2) * CAMERA_FRAME_PADDING;
-    const halfHeight = (this.towerHeight / 2) * CAMERA_FRAME_PADDING;
-    const distanceForWidth = halfWidth / Math.tan(horizontalFov / 2);
-    const distanceForHeight = halfHeight / Math.tan(verticalFov / 2);
-    const distance = Math.max(
-      CAMERA_BASE_DISTANCE,
-      distanceForWidth,
-      distanceForHeight
-    );
-
-    this.camera.position
-      .copy(CAMERA_LOOK_AT)
-      .addScaledVector(CAMERA_DIRECTION, distance);
-    this.camera.lookAt(CAMERA_LOOK_AT);
-
-    // フォグの範囲（元は20〜40）はカメラ距離が基準のときの値。カメラを遠ざける
-    // 分だけフォグも比例して遠くに伸ばさないと、タワーがフォグに沈んで見えなくなる
-    const cameraDistanceScale = distance / CAMERA_BASE_DISTANCE;
-    this.scene.fog.near = 20 * cameraDistanceScale;
-    this.scene.fog.far = 40 * cameraDistanceScale;
+    // 床のメッシュは置かない。地面が無いぶん、落ちたブロックはそのまま
+    // 暗い背景の奥へ消えていく（回収用の床は物理だけで、画面には映らない位置にある）
   }
 
   _setupPhysics() {
     this.physicsWorld = new PhysicsWorld();
     this.material = this.physicsWorld.defaultMaterial;
 
+    // ステージには地面が無く、棒から落ちたブロックはどこまでも落ちていく。
+    // 物理ボディを無限に走らせ続けないよう、画面に映らない高さに回収用の床を敷き、
+    // ここへ着いたブロックを破棄する
     const floorBody = new CANNON.Body({
       mass: 0,
       shape: new CANNON.Plane(),
       material: this.material,
     });
     floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    floorBody.position.set(0, FLOOR_Y, 0);
+    floorBody.addEventListener('collide', (event) => {
+      this.landedBodies.add(event.body);
+    });
     this.physicsWorld.addBody(floorBody);
   }
 
-  _setupTower() {
-    // 各行は改行または自動折り返しで区切られた文字配列。全行共通のmaxColsを
-    // 基準に左詰めで配置する（行ごとに中央寄せすると物理的に不安定になるため）
-    this.rows.forEach((rowChars, row) => {
-      rowChars.forEach((character, col) => {
-        this._spawnBlock(character, row, col);
-      });
+  _setupBar() {
+    this.bar = new Bar(this.physicsWorld, this.material);
+    this.scene.add(this.bar.mesh);
+  }
+
+  // 空中に浮いた棒の上にメールブロックの壁を積む。
+  // 壁そのものの組み方（列数・間隔）は床に積んでいた頃と同じで、
+  // 積み始める高さが棒の上面になった点だけが違う
+  _setupWall() {
+    const blockWidth = 1.6;
+    const blockHeight = 0.95;
+
+    const characters = this._buildCharacters();
+    const cols = Math.max(1, Math.ceil(Math.sqrt(characters.length)));
+
+    characters.forEach((character, index) => {
+      const row = Math.floor(index / cols);
+      const col = index % cols;
+      this._spawnBlock(character, row, col, cols, blockWidth, blockHeight);
     });
   }
 
-  // タワーに積む行（文字の配列の配列）を作る。「1文字=1ブロック」の組み方を
-  // ここ1箇所に集約し、メール本文が渡されなかった場合（遊び方からゲームへ直行した
-  // 場合など）もランダムな文面を同じ手順で行分解する。
-  //
-  // - メール本文中の改行はそのまま新しい行の区切りとして扱う（改行のたびに新しい行）
-  // - 改行のない長い行は自動で折り返す（折り返し幅は_splitIntoRows参照）
-  // - 行内のスペース（全角含む）はブロックにしても意味がないため取り除く
-  // - サロゲートペア（絵文字など）を割らないよう Array.from で分割する
-  // - 全体の文字数が MAX_MAIL_BLOCKS を超える分は切り詰めてタワーが発散しないようにする
-  // - 短い行は空白ブロック（''）で右側を埋め、全行を同じ幅に揃える
-  _buildRows() {
-    const primary = this._splitIntoRows(this.mailText ?? '');
+  // タワーに積む文字の配列を作る。「1文字=1ブロック」の組み方をここ1箇所に集約し、
+  // メール本文が渡されなかった場合（遊び方からゲームへ直行した場合など）も
+  // ランダムな文面を同じ手順で1文字ずつに分解する。
+  // 改行や空白（全角スペース含む）はブロックにしても意味がないため \s+ で取り除き、
+  // サロゲートペア（絵文字など）を割らないよう Array.from で分割する。
+  // 長すぎる入力は MAX_MAIL_BLOCKS 件までに切り詰めてタワーが発散しないようにしている。
+  _buildCharacters() {
+    const normalized = (this.mailText ?? '').replace(/\s+/g, '');
     // 空白だけの入力でブロックが0個になると開始直後にゲームが終わってしまうため、
-    // 行が1つも残らなければランダム文面に退避する
-    return primary.rows.length > 0
-      ? primary
-      : this._splitIntoRows(getRandomEmailText());
+    // 正規化した結果が空ならランダム文面に退避する
+    const source =
+      normalized.length > 0
+        ? normalized
+        : getRandomEmailText().replace(/\s+/g, '');
+    return Array.from(source).slice(0, MAX_MAIL_BLOCKS);
   }
 
-  _splitIntoRows(text) {
-    // 折り返し幅は総文字数の平方根（正方形に近い形）から決める。これは
-    // 「読みやすさを確認済みの基準」である元の実装のcols計算
-    // （Math.ceil(Math.sqrt(文字数))）を踏襲したもの。改行のない1本の長文でも
-    // 極端に横長にならず、行数・列数がバランスよく増えていく。
-    // ただしMAX_ROWSを超えて積み上がりそうな文字数になったら、行を増やさず
-    // 折り返し幅（列数）だけを増やして横に広げる
-    const totalChars = Math.min(
-      MAX_MAIL_BLOCKS,
-      Array.from(text.replace(/\s+/g, '')).length
-    );
-    const wrapWidth = Math.max(
-      1,
-      Math.ceil(Math.sqrt(totalChars)),
-      Math.ceil(totalChars / MAX_ROWS)
-    );
-
-    const rows = [];
-    let remaining = MAX_MAIL_BLOCKS;
-
-    outer: for (const line of text.split(/\r\n|\r|\n/)) {
-      const lineChars = Array.from(line.replace(/\s+/g, ''));
-      for (let start = 0; start < lineChars.length; start += wrapWidth) {
-        if (remaining <= 0) break outer;
-        const chunk = lineChars.slice(start, start + wrapWidth).slice(0, remaining);
-        rows.push(chunk);
-        remaining -= chunk.length;
-      }
-    }
-
-    // 行ごとに実際の文字数で中央寄せすると、短い行の上に長い行が乗ったときに
-    // 支えのないオーバーハングができて自重で崩れてしまう（実機で確認済み）。
-    // 全行をwrapWidthに揃えて空白ブロックで埋めることで、どの行も必ず
-    // 下の行に支えられるようにする
-    const paddedRows = rows.map((row) => {
-      const padded = row.slice();
-      while (padded.length < wrapWidth) {
-        padded.push('');
-      }
-      return padded;
-    });
-
-    return { rows: paddedRows, wrapWidth };
-  }
-
-  // 同じ文字は同じテクスチャを使い回す。ブロック数ぶん毎回描き直す必要はなく、
+  // 同じ文字は同じテクスチャを使い回す。24ブロック分を毎回描き直す必要はなく、
   // 「の」「ご」のように頻出する文字ほど効く
   _getCharacterTexture(character) {
     let texture = this.characterTextures.get(character);
@@ -288,7 +235,7 @@ export class GameScene {
     return texture;
   }
 
-  _spawnBlock(character, row, col) {
+  _spawnBlock(character, row, col, cols, blockWidth, blockHeight) {
     const block = new Block(
       this.physicsWorld,
       this.material,
@@ -296,12 +243,8 @@ export class GameScene {
     );
     this.scene.add(block.mesh);
 
-    // 行の並びは入力テキストの先頭から順（row=0が最初の行）だが、タワーは
-    // 地面から積み上がる構造のため、そのままだと最初の行が最下段になり、
-    // 上から下に読むと文章が逆順になってしまう。段の高さを反転させることで、
-    // 最初に打った行が一番上の段になり、見た目の並びが入力順と一致するようにする
-    const x = (col - (this.maxCols - 1) / 2) * BLOCK_WIDTH;
-    const y = BLOCK_HEIGHT / 2 + (this.rows.length - 1 - row) * BLOCK_HEIGHT;
+    const x = (col - (cols - 1) / 2) * blockWidth;
+    const y = BAR_TOP_Y + blockHeight / 2 + row * blockHeight;
     const z = 0;
     block.spawnAt(new THREE.Vector3(x, y, z));
 
@@ -325,7 +268,7 @@ export class GameScene {
 
   _isBallAtRest(ball, age) {
     const speed = ball.body.velocity.length();
-    const fellOffStage = ball.body.position.y < -5;
+    const fellOffStage = ball.body.position.y < BALL_DESPAWN_Y;
     const tookTooLong = age >= BALL_MAX_LIFETIME_SECONDS;
     return fellOffStage || speed < BALL_REST_SPEED || tookTooLong;
   }
@@ -350,35 +293,57 @@ export class GameScene {
     this.physicsWorld.step(deltaSeconds);
 
     this.blocks.forEach((block) => block.syncMeshToBody());
+    this.fallingBlocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
 
-    this._resolveBrokenBlocks();
+    this._resolveFallenBlocks();
+    this._resolveLandedBlocks();
     this._resolveActiveBall(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
   }
 
-  _resolveBrokenBlocks() {
-    const survivors = [];
+  // 棒より下へ落ちたブロックを見つけて加点する。ブロックは壊れないので、
+  // 得点手段はこの「落とす」だけ。加点したブロックは fallingBlocks へ移し、
+  // 二重に数えないようにする
+  _resolveFallenBlocks() {
+    const remaining = [];
     this.blocks.forEach((block) => {
-      if (block.shouldBreak) {
-        this.scene.remove(block.mesh);
-        block.dispose();
+      if (block.body.position.y < SCORE_FALL_Y) {
         this.score += SCORE_PER_BLOCK;
         this.hud.setScore(this.score);
+        this.fallingBlocks.push(block);
       } else {
-        survivors.push(block);
+        remaining.push(block);
       }
     });
 
-    // 落ち着いたタワーはcannon-esのスリープに入っていて、下のブロックが消えても
-    // 目を覚まさず宙に浮いたままになる。壊れたぶんだけ残りを起こして自然に崩落させる
-    if (survivors.length !== this.blocks.length) {
-      survivors.forEach((block) => block.body.wakeUp());
+    // 落ち着いた壁はcannon-esのスリープに入っていて、下のブロックが落ちても
+    // 目を覚まさず宙に浮いたままになる。落ちたぶんだけ残りを起こして自然に崩落させる
+    if (remaining.length !== this.blocks.length) {
+      remaining.forEach((block) => block.body.wakeUp());
     }
 
-    this.blocks = survivors;
+    this.blocks = remaining;
+  }
+
+  // 回収用の床まで落ちたブロックを破棄する。床のcollideイベントが主で、
+  // 先に落ちたブロックの上に着地してしまった場合に備えて高さでも拾う
+  _resolveLandedBlocks() {
+    if (this.fallingBlocks.length === 0) return;
+
+    this.fallingBlocks = this.fallingBlocks.filter((block) => {
+      const landed =
+        this.landedBodies.has(block.body) ||
+        block.body.position.y < FLOOR_LANDED_Y;
+      if (!landed) return true;
+
+      this.landedBodies.delete(block.body);
+      this.scene.remove(block.mesh);
+      block.dispose();
+      return false;
+    });
   }
 
   _resolveActiveBall(deltaSeconds) {
@@ -392,8 +357,12 @@ export class GameScene {
   }
 
   _checkGameOver() {
-    const cleared = this.blocks.length === 0;
-    const outOfAmmo = this.remainingBalls <= 0 && !this.activeBall;
+    // 落下中のブロックが残っているうちに結果画面へ飛ぶと、最後の一撃が
+    // 落ちきる前に画面が切り替わってしまう。球と落下中のブロックが
+    // 片付いてから終了する
+    const settled = !this.activeBall && this.fallingBlocks.length === 0;
+    const cleared = this.blocks.length === 0 && settled;
+    const outOfAmmo = this.remainingBalls <= 0 && settled;
     if (cleared || outOfAmmo) {
       this.hasEnded = true;
       this.onGameOver(this.score);
@@ -402,9 +371,6 @@ export class GameScene {
 
   _onResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
-    // 画面回転などでアスペクト比が変わるとタワーが収まる距離も変わるため、
-    // カメラ位置も引き直す
-    this._applyCameraFraming();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
