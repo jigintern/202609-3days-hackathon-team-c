@@ -36,6 +36,9 @@ export class AimController {
     this.aimPoint = new THREE.Vector3(0, 0, 0);
 
     this.isDragging = false;
+    // ドラッグ中の指のID。2本目以降の指のイベントを無視して、狙いを乗っ取られ
+    // ないようにする（スマホは端末を持つ指が画面に触れることがあるため）
+    this.activePointerId = null;
     this.startClientY = 0;
     this.pullRatio = 0;
     this.powerPercent = 0;
@@ -45,10 +48,12 @@ export class AimController {
     this._onPointerMove = this._onPointerMove.bind(this);
     this._onPointerDown = this._onPointerDown.bind(this);
     this._onPointerUp = this._onPointerUp.bind(this);
+    this._onPointerCancel = this._onPointerCancel.bind(this);
 
     canvas.addEventListener('pointerdown', this._onPointerDown);
     window.addEventListener('pointermove', this._onPointerMove);
     window.addEventListener('pointerup', this._onPointerUp);
+    window.addEventListener('pointercancel', this._onPointerCancel);
   }
 
   _updatePointerNDC(clientX, clientY) {
@@ -58,31 +63,54 @@ export class AimController {
   }
 
   _onPointerDown(event) {
+    // すでにドラッグ中なら2本目の指。ここで受けてしまうと狙いの基準位置
+    // (startClientY)が上書きされ、引き量が0に戻って発射できなくなる
+    if (this.isDragging) return;
+
     this.isDragging = true;
+    this.activePointerId = event.pointerId;
     this.startClientY = event.clientY;
     this._updatePointerNDC(event.clientX, event.clientY);
     this._updateAim(event.clientY);
   }
 
   _onPointerMove(event) {
-    if (!this.isDragging) return;
+    if (!this._isActivePointer(event)) return;
     this._updatePointerNDC(event.clientX, event.clientY);
     this._updateAim(event.clientY);
   }
 
-  _onPointerUp() {
-    if (!this.isDragging) return;
-    this.isDragging = false;
+  _onPointerUp(event) {
+    if (!this._isActivePointer(event)) return;
 
     const shouldLaunch = this.pullRatio >= MIN_PULL_RATIO;
     const launchPower = this.powerPercent;
-    // 次のドラッグまでHUDのパワーゲージを空にしておく
-    this.pullRatio = 0;
-    this.powerPercent = 0;
+    this._endDrag();
 
     if (shouldLaunch) {
       this.onLaunch(this.direction.clone(), launchPower);
     }
+  }
+
+  // ブラウザやOSにタッチを横取りされた場合（着信、システムのジェスチャーなど）。
+  // pointerup は二度と来ないので、ここで拾わないと isDragging が立ちっぱなしに
+  // なり、以降の狙いが壊れる。意図しない角度で球を1個失わせないよう、
+  // ここでは発射せず状態を戻すだけにしている
+  _onPointerCancel(event) {
+    if (!this._isActivePointer(event)) return;
+    this._endDrag();
+  }
+
+  _isActivePointer(event) {
+    return this.isDragging && event.pointerId === this.activePointerId;
+  }
+
+  _endDrag() {
+    this.isDragging = false;
+    this.activePointerId = null;
+    // 次のドラッグまでHUDのパワーゲージを空にしておく
+    this.pullRatio = 0;
+    this.powerPercent = 0;
   }
 
   // 水平方向は指の位置と床面の交点から、垂直方向は押した位置からの縦ドラッグ量から求め、
@@ -132,5 +160,6 @@ export class AimController {
     this.canvas.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
     window.removeEventListener('pointerup', this._onPointerUp);
+    window.removeEventListener('pointercancel', this._onPointerCancel);
   }
 }
