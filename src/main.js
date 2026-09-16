@@ -82,7 +82,8 @@ class App {
       this.scenes[SCREEN.RESULT].setResult(
         payload.mailText ?? '',
         payload.crushedIndices ?? new Set(),
-        payload.totalCrushableChars ?? 0
+        payload.totalCrushableChars ?? 0,
+        payload.backgroundImage ?? ''
       );
     }
     if (screen === SCREEN.GAME) {

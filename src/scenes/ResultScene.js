@@ -17,6 +17,7 @@ export class ResultScene {
     this.mailText = '';
     this.crushedIndices = new Set();
     this.totalCrushableChars = 0;
+    this.backgroundImage = '';
 
     this.root = document.createElement('div');
     this.root.className = 'screen result-screen';
@@ -34,11 +35,14 @@ export class ResultScene {
   }
 
   // GameScene.onGameOver から main.js を通じて渡される。mount()より前に
-  // 呼ばれる想定（GameScene.setMailTextと同じ作法）
-  setResult(mailText, crushedIndices, totalCrushableChars) {
+  // 呼ばれる想定（GameScene.setMailTextと同じ作法）。
+  // backgroundImage は球を撃ち切った直後のゲーム画面をcanvas.toDataURL()で
+  // 撮ったスナップショット（GameScene._checkGameOver()参照）
+  setResult(mailText, crushedIndices, totalCrushableChars, backgroundImage) {
     this.mailText = mailText;
     this.crushedIndices = crushedIndices;
     this.totalCrushableChars = totalCrushableChars;
+    this.backgroundImage = backgroundImage;
   }
 
   mount() {
@@ -64,6 +68,12 @@ export class ResultScene {
     const destroyedCount = this.crushedIndices.size;
     const total = this.totalCrushableChars;
     const complete = total > 0 && destroyedCount === total;
+
+    // 背景は「球を撃ち切った直後のゲーム画面」のスナップショット。無地の
+    // 暗い背景に固定しないことで、リザルトがゲームの続きだと分かるようにする
+    this.root.style.backgroundImage = this.backgroundImage
+      ? `url(${this.backgroundImage})`
+      : '';
 
     this.root.classList.toggle('is-complete', complete);
     this.root.querySelector('#result-heading').textContent = complete

@@ -292,6 +292,17 @@ body {
   transform: none;
 }
 
+/* リザルト画面の背景は、球を撃ち切った直後のゲーム画面のスナップショット
+   （JS側で background-image をインラインで設定する）。.screen の既定の
+   暗い単色オーバーレイのままだと背景が見えなくなるので、ここだけ薄い色に
+   落とし、パネル自体の背景（下記）で文字のコントラストを確保する */
+.result-screen {
+  background-color: rgba(10, 12, 24, 0.35);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 /* リザルト画面。本文（最大100文字）＋文言＋ボタン2つを縦画面に収めるため、
    パネル自体をビューポート高の90%までに抑え、本文だけを内側でスクロールさせる */
 .result-panel {

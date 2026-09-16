@@ -728,10 +728,18 @@ export class GameScene {
     if (cleared || outOfAmmo) {
       this.hasEnded = true;
       soundManager.play('gameover');
+      // リザルト画面の背景に「球を撃ち切った直後のゲーム画面」をそのまま
+      // 使うため、シーンが破棄される前にここでスナップショットを撮る。
+      // rendererにpreserveDrawingBufferを立てていないため、直前の描画から
+      // 時間が経つとバッファが失われている恐れがある。撮る直前にもう一度
+      // 描画しておくことで、このタイミングの見た目を確実に残す
+      this.renderer.render(this.scene, this.camera);
+      const backgroundImage = this.canvas.toDataURL('image/jpeg', 0.85);
       this.onGameOver({
         mailText: this.resolvedMailText,
         crushedIndices: this.crushedIndices,
         totalCrushableChars: this.totalCrushableChars,
+        backgroundImage,
       });
     }
   }
