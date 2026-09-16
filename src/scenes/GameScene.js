@@ -296,8 +296,12 @@ export class GameScene {
     );
     this.scene.add(block.mesh);
 
+    // 行の並びは入力テキストの先頭から順（row=0が最初の行）だが、タワーは
+    // 地面から積み上がる構造のため、そのままだと最初の行が最下段になり、
+    // 上から下に読むと文章が逆順になってしまう。段の高さを反転させることで、
+    // 最初に打った行が一番上の段になり、見た目の並びが入力順と一致するようにする
     const x = (col - (this.maxCols - 1) / 2) * BLOCK_WIDTH;
-    const y = BLOCK_HEIGHT / 2 + row * BLOCK_HEIGHT;
+    const y = BLOCK_HEIGHT / 2 + (this.rows.length - 1 - row) * BLOCK_HEIGHT;
     const z = 0;
     block.spawnAt(new THREE.Vector3(x, y, z));
 
