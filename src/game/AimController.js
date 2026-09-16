@@ -17,14 +17,20 @@ const MIN_LAUNCH_POWER = 85;
 const MAX_LAUNCH_POWER = 100;
 const MIN_PULL_RATIO = 0.03; // ほとんど引かずに離した場合は、誤クリックとみなして球を消費しない
 
+// maxYawDeg を渡さなかった場合の左右角度の上限。スマホ縦画面で画面端まで
+// 指を動かしたときの値（約±16度）に近く、壁を狙うには十分な範囲
+const DEFAULT_MAX_YAW_DEG = 20;
+
 // ドラッグ&フリックで狙いを決める。指の水平位置（床面への視線交点）で左右・奥行きの方向を、
 // 縦方向にどれだけ引いたかで仰角とパワーを同時に決め、指を離した瞬間の値で発射する
 export class AimController {
-  constructor(canvas, camera, launchOrigin, onLaunch) {
+  // maxYawDeg: 正面(-Z)からの左右角度の上限（度）。壁の幅から GameScene が算出して渡す
+  constructor(canvas, camera, launchOrigin, onLaunch, maxYawDeg = DEFAULT_MAX_YAW_DEG) {
     this.canvas = canvas;
     this.camera = camera;
     this.launchOrigin = launchOrigin;
     this.onLaunch = onLaunch;
+    this.maxYawDeg = maxYawDeg;
 
     this.pointerNDC = new THREE.Vector2(0, 0);
     this.raycaster = new THREE.Raycaster();
@@ -130,7 +136,19 @@ export class AimController {
     if (horizontal.lengthSq() < 1e-6) {
       horizontal.set(0, 0, -1);
     }
-    horizontal.normalize();
+    // 左右の向きは「正面(-Z)から何度ずれているか」に直してから上限で丸める。
+    // 視線と水平面の交点をそのまま使うと、横長画面では画面端の視線が真横に近づき、
+    // 交点が発射地点のすぐ手前（11m先）に来るため、左右角度が際限なく開いてしまう
+    // （実測：スマホ390x844で最大±16度に対し、PC1920x950では±51度、
+    //   2560x700では±66度。球がほぼ真横＝プレイヤーの脇へ飛んでいく向きになる）。
+    // 壁を狙うのに必要なのは5列で±9度、17列でも±29度なので、それ以上は丸めて構わない
+    const yawDeg = THREE.MathUtils.radToDeg(
+      Math.atan2(horizontal.x, -horizontal.z)
+    );
+    const clampedYawRad = THREE.MathUtils.degToRad(
+      clamp(yawDeg, -this.maxYawDeg, this.maxYawDeg)
+    );
+    horizontal.set(Math.sin(clampedYawRad), 0, -Math.cos(clampedYawRad));
 
     const rect = this.canvas.getBoundingClientRect();
     const dragRange = rect.height * DRAG_RANGE_RATIO;
