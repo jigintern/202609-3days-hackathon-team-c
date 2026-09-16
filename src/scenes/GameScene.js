@@ -114,6 +114,8 @@ export class GameScene {
     this.fallingBlocks.forEach((block) => block.dispose());
     this.bar.dispose();
     if (this.activeBall) this.activeBall.dispose();
+    this.groundMesh.geometry.dispose();
+    this.groundMesh.material.dispose();
 
     // ブロック間で共有している文字テクスチャはここでまとめて破棄する
     this.characterTextures.forEach((texture) => texture.dispose());
@@ -163,8 +165,19 @@ export class GameScene {
     directional.shadow.camera.updateProjectionMatrix();
     this.scene.add(directional);
 
-    // 床のメッシュは置かない。地面が無いぶん、落ちたブロックはそのまま
-    // 背景の奥（フォグの中）へ消えていく（回収用の床は物理だけで、画面には映らない位置にある）
+    // タイトル画面と同じ緑の地面（見た目だけの背景装飾で、当たり判定は持たない）。
+    // カメラがやや見下ろす角度のため、深度を書き込むと落下中のブロックが
+    // y=0を過ぎた瞬間に地面の奥へ隠れてしまう（画面外に出る前に消えて見える）。
+    // それを避けるため、地面は深度バッファに書き込まない＝他のオブジェクトを
+    // 一切隠さない背景扱いにし、ブロックは画面外に出るまで手前に描画され続ける
+    const groundGeometry = new THREE.PlaneGeometry(120, 120);
+    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x5fae4a });
+    groundMaterial.depthWrite = false;
+    this.groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+    this.groundMesh.renderOrder = -1;
+    this.groundMesh.rotation.x = -Math.PI / 2;
+    this.groundMesh.receiveShadow = true;
+    this.scene.add(this.groundMesh);
   }
 
   _setupPhysics() {
