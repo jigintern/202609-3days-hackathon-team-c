@@ -1,10 +1,10 @@
 import { soundManager } from '../audio/SoundManager.js';
 
-// 遊び方説明画面。操作方法テキストとスキップボタンのみ
+// 遊び方説明画面。操作方法テキストとタイトルへ戻るボタンのみ
 export class HowToPlayScene {
-  constructor({ overlayRoot, onSkip }) {
+  constructor({ overlayRoot, onBackToTitle }) {
     this.overlayRoot = overlayRoot;
-    this.onSkip = onSkip;
+    this.onBackToTitle = onBackToTitle;
 
     this.root = document.createElement('div');
     this.root.className = 'screen';
@@ -18,16 +18,16 @@ export class HowToPlayScene {
         <strong>落として、メール本文を粉砕しよう</strong>。<br />
         棒の上を空にするか、球を全部使い切るとゲーム終了。
       </p>
-      <button class="btn" id="btn-skip">はじめる</button>
+      <button class="btn btn-secondary" id="btn-back-to-title">タイトルへ戻る</button>
     `;
   }
 
   mount() {
     this.overlayRoot.appendChild(this.root);
     this.root.classList.add('is-active');
-    this.root.querySelector('#btn-skip').addEventListener('click', () => {
+    this.root.querySelector('#btn-back-to-title').addEventListener('click', () => {
       soundManager.play('click');
-      this.onSkip();
+      this.onBackToTitle();
     });
   }
 
