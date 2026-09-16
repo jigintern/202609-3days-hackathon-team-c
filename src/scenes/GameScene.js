@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from '../game/PhysicsWorld.js';
-import { Ball, MAX_LAUNCH_SPEED } from '../game/Ball.js';
+import { Ball, MAX_LAUNCH_SPEED, RADIUS as BALL_RADIUS } from '../game/Ball.js';
 import { Block, createCharacterTexture } from '../game/Block.js';
 import { Bar, BAR_TOP_Y, BAR_Y } from '../game/Bar.js';
+import {
+  Bird,
+  BIRD_HIT_RADIUS,
+  BIRD_OFFSCREEN_MARGIN,
+} from '../game/Bird.js';
 import { AimController } from '../game/AimController.js';
 import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
 import { ExplosionEffect } from '../game/ExplosionEffect.js';
@@ -138,6 +143,20 @@ const HIT_SHAKE_MIN_SPEED = 8;
 // 角度なのでカメラ距離には依らない（cameraDistanceScale を掛けない）
 const SHAKE_MAX_ROLL = THREE.MathUtils.degToRad(2);
 
+// 隠し要素。ゲーム開始時に一度だけ空を横切る鳥に球を当てると、鳥が落とした手紙が
+// タワーの中心で炸裂し、棒ごと消えて壁が丸ごと崩れ落ちる＝一発クリアになる。
+//
+// 手紙の爆発は爆弾ブロックとは別物として調整してある：
+// - 半径は壁の幅に合わせて広げる。文字数が多いと壁は20m超になり、爆弾と同じ
+//   半径6mでは中央がわずかに光るだけで「タワーごと吹き飛んだ」ようには見えない
+// - 下限は爆弾より一回り大きい程度に留める。短い文面だと壁は6m幅しかなく、
+//   半径9mでは煙と衝撃波が画面を覆って、肝心の崩れ落ちる様子が見えなくなる
+// - 力積は爆弾(30)より弱い12。棒を消すだけで全ブロックは確実に落ちるので、
+//   ここを強くすると文字が四方八方へ散って読めなくなる。あくまで崩落のきっかけ
+const LETTER_BLAST_MIN_RADIUS = 7;
+const LETTER_BLAST_WIDTH_RATIO = 0.5;
+const LETTER_BLAST_IMPULSE = 12;
+
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
 // 狙い/発射/落下判定をひとつにまとめる
@@ -228,6 +247,13 @@ export class GameScene {
     // 衝撃波の輪をカメラへ正対させるため、カメラを渡す（_setupThree()で生成済み）
     this.explosionEffect = new ExplosionEffect(this.scene, this.camera);
 
+    // 隠し要素の鳥。開始と同時に飛び始め、画面を渡りきったら二度と現れない
+    this.bird = new Bird(this.scene, {
+      onLetterArrive: (position) => this._letterBlast(position),
+    });
+    this.bird.setHalfSpan(this.birdHalfSpan);
+    this.bird.start();
+
     this._onResize = this._onResize.bind(this);
     window.addEventListener('resize', this._onResize);
   }
@@ -237,6 +263,7 @@ export class GameScene {
     this.aimController.dispose();
     this.trajectoryPreview.dispose();
     this.explosionEffect.dispose();
+    this.bird.dispose();
     this.hud.hide();
     this.hud.root.remove();
 
@@ -347,6 +374,13 @@ export class GameScene {
     // 見かけの大きさを保つ。mount()中は生成前に呼ばれるので値も覚えておく
     this.cameraDistanceScale = distanceScale;
     this.trajectoryPreview?.setCameraDistanceScale(distanceScale);
+
+    // 鳥が飛ぶ距離は「いま見えている横幅＋画面外の余白」。カメラが引くほど
+    // 広い範囲が映るので、壁の幅ではなく画角から求める。
+    // mount()中は鳥の生成前に呼ばれるので値も覚えておく
+    this.birdHalfSpan =
+      distance * Math.tan(horizontalFov / 2) + BIRD_OFFSCREEN_MARGIN;
+    this.bird?.setHalfSpan(this.birdHalfSpan);
   }
 
   _setupPhysics() {
@@ -650,6 +684,8 @@ export class GameScene {
     this.fallingBlocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
 
+    this.bird.update(deltaSeconds);
+    this._resolveBirdHit();
     this._resolveBombs();
     this._resolveFallenBlocks();
     this._resolveLandedBlocks();
@@ -668,6 +704,49 @@ export class GameScene {
     if (block.sourceIndex !== null) {
       this.crushedIndices.add(block.sourceIndex);
     }
+  }
+
+  // 飛んでいる球が鳥に届いたかを見る。鳥は物理ボディを持たないので、
+  // cannon-esの衝突ではなく中心どうしの距離で判定している。
+  // 球の速度は最大でも1フレームあたり0.6m程度で、判定半径のほうがずっと大きいため、
+  // 速い球がすり抜けることはない
+  _resolveBirdHit() {
+    if (!this.bird.isTargetable || !this.activeBall) return;
+
+    const distance = this.bird.position.distanceTo(this.activeBall.body.position);
+    if (distance > BIRD_HIT_RADIUS + BALL_RADIUS) return;
+
+    soundManager.play('impact');
+    // 手紙はタワーの中心を目がけて落ちる。ここで炸裂させると、
+    // 壁のどの高さのブロックにも爆風が均等に届く
+    this.bird.hit(
+      new THREE.Vector3(0, BAR_TOP_Y + this.wallHeight / 2, 0)
+    );
+  }
+
+  // 鳥が落とした手紙がタワーに届いたときの一発クリア。
+  // 棒を消して支えを失わせるので、爆風の強さに関わらず必ず全ブロックが落ちる。
+  // 落ちたブロックは通常どおり_resolveFallenBlocks()が粉砕として数えるため、
+  // リザルトは粉砕率100%になる
+  _letterBlast(origin) {
+    if (this.hasEnded) return;
+
+    const radius = Math.max(
+      LETTER_BLAST_MIN_RADIUS,
+      this.wallWidth * LETTER_BLAST_WIDTH_RATIO
+    );
+
+    // 支えを外す。メッシュとボディの破棄はunmount()のbar.dispose()に任せる
+    // （removeBodyは二度呼んでも安全）
+    this.scene.remove(this.bar.mesh);
+    this.physicsWorld.removeBody(this.bar.body);
+
+    // 落ち着いた壁はcannon-esのスリープに入っていて、支えが消えても目を覚まさない。
+    // 爆風は半径の外まで届かないので、ここで全ブロックを起こしておく
+    // （起こさないと端のブロックが宙に浮いたまま残り、クリアにならない）
+    this.blocks.forEach((block) => block.body.wakeUp());
+
+    this._explode(origin, radius, LETTER_BLAST_IMPULSE);
   }
 
   // 球が当たった爆弾を爆発させる。爆弾自身はその場で消え、棒から落ちたときと
@@ -726,9 +805,12 @@ export class GameScene {
   // 間に何があるかは見ていない（遮蔽判定は入れていない）。
   //
   // 爆弾の引き金は球との衝突だけなので、この爆風が他の爆弾を誘爆させることはない。
-  // ただし爆風で弾かれた球が別の爆弾に当たれば、そちらは普通に爆発する
-  _explode(origin) {
-    this.explosionEffect.spawnAt(origin, EXPLOSION_RADIUS);
+  // ただし爆風で弾かれた球が別の爆弾に当たれば、そちらは普通に爆発する。
+  //
+  // radius / impulse は既定が爆弾ブロックのぶん。隠し要素の手紙は、壁の幅に合わせた
+  // 広い半径と弱い力積で呼び出す（_letterBlast）
+  _explode(origin, radius = EXPLOSION_RADIUS, impulse = EXPLOSION_IMPULSE) {
+    this.explosionEffect.spawnAt(origin, radius);
     // 同時に複数が爆発しても揺れは重ねず、最初から振り直す
     this._shakeCamera(EXPLOSION_SHAKE_AMPLITUDE, EXPLOSION_SHAKE_DURATION);
 
@@ -742,12 +824,12 @@ export class GameScene {
         body.position.z - origin.z
       );
       const distance = offset.length();
-      if (distance > EXPLOSION_RADIUS) return;
+      if (distance > radius) return;
 
       // 爆心とまったく同じ位置にいると向きが決まらないので、その時だけ真上へ逃がす
       const direction =
         distance > 1e-4 ? offset.scale(1 / distance) : new CANNON.Vec3(0, 1, 0);
-      const strength = EXPLOSION_IMPULSE * (1 - distance / EXPLOSION_RADIUS);
+      const strength = impulse * (1 - distance / radius);
 
       // スリープ中のブロックは力を加えても起きないので先に起こす
       body.wakeUp();

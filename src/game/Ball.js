@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { clamp } from '../utils/helpers.js';
 
-const RADIUS = 0.35;
+// 鳥の当たり判定（GameScene側の距離比較）でも使うので公開している
+export const RADIUS = 0.35;
 // 水平到達距離は速度の2乗に比例する。発射地点が11mから25m（約2.27倍）へ伸びたぶんを
 // sqrt(25/11)≒1.51倍の速度で補っている（26 → 40）。
 // 下げると最大パワーでも空中の壁に届かなくなる
