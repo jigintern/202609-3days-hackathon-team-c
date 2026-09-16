@@ -32,6 +32,9 @@ const FLOOR_LANDED_Y = FLOOR_Y + 2;
 // この高さより下に落ちたら「棒から落ちた」とみなして加点する。
 // 棒の上で横滑りしただけのブロックを誤って数えないよう、棒より1m下に置いてある
 const SCORE_FALL_Y = BAR_Y - 1;
+// 落下音を鳴らすまでの遅延。実際の着地（画面外の回収床）は数秒かかり体感が遅いため、
+// 棒から落ちた瞬間を起点に短い遅延だけ置いて鳴らす
+const LAND_SOUND_DELAY_MS = 1000;
 
 // メール本文からブロックの壁を組む際の文字数上限（壁が発散しないための目安。
 // 見た目やカメラ位置に合わせて調整可）
@@ -263,7 +266,7 @@ export class GameScene {
     ball.spawnAt(LAUNCH_ORIGIN);
     ball.launch(direction, power);
     ball.body.addEventListener('collide', (event) => {
-      if (event.body.isBlock) soundManager.playImpact();
+      if (event.body.isBlock) soundManager.play('impact');
     });
     this.scene.add(ball.mesh);
     this.activeBall = ball;
@@ -319,6 +322,9 @@ export class GameScene {
         this.score += SCORE_PER_BLOCK;
         this.hud.setScore(this.score);
         this.fallingBlocks.push(block);
+        // 実際に画面外の回収床へ着地するまで待つと数秒かかり体感が遅いため、
+        // 棒から落ちた時点を起点に一定時間後の「着地したはず」のタイミングで鳴らす
+        setTimeout(() => soundManager.play('land'), LAND_SOUND_DELAY_MS);
       } else {
         remaining.push(block);
       }
