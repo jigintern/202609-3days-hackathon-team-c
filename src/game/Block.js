@@ -115,6 +115,8 @@ export class Block {
       ),
       material,
     });
+    // 玉側の衝突リスナーがブロックへの命中だけを見分けるための目印（Ball.isBallと対）
+    this.body.isBlock = true;
   }
 
   spawnAt(position) {

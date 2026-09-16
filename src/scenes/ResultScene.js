@@ -1,3 +1,5 @@
+import { soundManager } from '../audio/SoundManager.js';
+
 // リザルト画面。スコア表示とリトライ / タイトルへ戻るボタン
 export class ResultScene {
   constructor({ overlayRoot, onRetry, onBackToTitle }) {
@@ -24,10 +26,14 @@ export class ResultScene {
     this.overlayRoot.appendChild(this.root);
     this.root.classList.add('is-active');
     this.root.querySelector('#result-score').textContent = `スコア: ${this.score}`;
-    this.root.querySelector('#btn-retry').addEventListener('click', this.onRetry);
-    this.root
-      .querySelector('#btn-title')
-      .addEventListener('click', this.onBackToTitle);
+    this.root.querySelector('#btn-retry').addEventListener('click', () => {
+      soundManager.play('click');
+      this.onRetry();
+    });
+    this.root.querySelector('#btn-title').addEventListener('click', () => {
+      soundManager.play('click');
+      this.onBackToTitle();
+    });
   }
 
   unmount() {

@@ -1,3 +1,5 @@
+import { soundManager } from '../audio/SoundManager.js';
+
 // 遊び方説明画面。操作方法テキストとスキップボタンのみ
 export class HowToPlayScene {
   constructor({ overlayRoot, onSkip }) {
@@ -23,7 +25,10 @@ export class HowToPlayScene {
   mount() {
     this.overlayRoot.appendChild(this.root);
     this.root.classList.add('is-active');
-    this.root.querySelector('#btn-skip').addEventListener('click', this.onSkip);
+    this.root.querySelector('#btn-skip').addEventListener('click', () => {
+      soundManager.play('click');
+      this.onSkip();
+    });
   }
 
   unmount() {
