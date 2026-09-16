@@ -24,6 +24,7 @@ export class SettingsMenu {
     this.root.appendChild(this.panel);
 
     this._buildPanel();
+    this._buildConfirmDialog();
 
     this.toggleButton.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -76,16 +77,60 @@ export class SettingsMenu {
     this.backButton.className = 'settings-back-btn';
     this.backButton.textContent = 'スタート画面に戻る';
     this.backButton.addEventListener('click', () => {
+      this._setConfirmOpen(true);
+    });
+    this.panel.appendChild(this.backButton);
+  }
+
+  _buildConfirmDialog() {
+    this.confirmOverlay = document.createElement('div');
+    this.confirmOverlay.className = 'settings-confirm-overlay';
+    this.root.appendChild(this.confirmOverlay);
+
+    const dialog = document.createElement('div');
+    dialog.className = 'settings-confirm-dialog';
+    this.confirmOverlay.appendChild(dialog);
+
+    const message = document.createElement('p');
+    message.className = 'settings-confirm-message';
+    message.textContent = 'スタート画面に戻りますか？';
+    dialog.appendChild(message);
+
+    const actions = document.createElement('div');
+    actions.className = 'settings-confirm-actions';
+    dialog.appendChild(actions);
+
+    const yesButton = document.createElement('button');
+    yesButton.type = 'button';
+    yesButton.className = 'settings-confirm-yes';
+    yesButton.textContent = 'はい';
+    yesButton.addEventListener('click', () => {
+      this._setConfirmOpen(false);
       this._setOpen(false);
       this.onBackToTitle?.();
     });
-    this.panel.appendChild(this.backButton);
+    actions.appendChild(yesButton);
+
+    const noButton = document.createElement('button');
+    noButton.type = 'button';
+    noButton.className = 'settings-confirm-no';
+    noButton.textContent = 'いいえ';
+    noButton.addEventListener('click', () => {
+      this._setConfirmOpen(false);
+    });
+    actions.appendChild(noButton);
+
+    this._setConfirmOpen(false);
   }
 
   _setOpen(open) {
     this._isOpen = open;
     this.panel.classList.toggle('is-open', open);
     this.toggleButton.setAttribute('aria-expanded', String(open));
+  }
+
+  _setConfirmOpen(open) {
+    this.confirmOverlay.classList.toggle('is-open', open);
   }
 
   _render() {

@@ -319,6 +319,76 @@ body {
   box-shadow: 0 1px 0 #123a8f;
 }
 
+/* 「スタート画面に戻る」の確認ダイアログ。画面全体を覆い、誤操作で
+   進行中のプレイを失わないようにする */
+.settings-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.settings-confirm-overlay.is-open {
+  display: flex;
+}
+
+.settings-confirm-dialog {
+  width: min(85vw, 320px);
+  padding: 24px;
+  border-radius: 12px;
+  background: #1a1e26;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.settings-confirm-message {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  color: #fff8e7;
+}
+
+.settings-confirm-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-confirm-yes,
+.settings-confirm-no {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.settings-confirm-yes {
+  background: linear-gradient(180deg, #ff5a5a, #d92b2b);
+  color: #fff;
+  box-shadow: 0 3px 0 #8f1c1c;
+}
+
+.settings-confirm-yes:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #8f1c1c;
+}
+
+.settings-confirm-no {
+  background: linear-gradient(180deg, #4a5568, #2d3341);
+  color: #fff;
+  box-shadow: 0 3px 0 #1a1e26;
+}
+
+.settings-confirm-no:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #1a1e26;
+}
+
 /* ゲーム画面のHUD */
 #hud {
   position: absolute;
