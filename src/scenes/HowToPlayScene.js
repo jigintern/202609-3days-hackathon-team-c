@@ -6,6 +6,8 @@ export class HowToPlayScene {
     this.overlayRoot = overlayRoot;
     this.onBackToTitle = onBackToTitle;
 
+    this._handleBackClick = this._handleBackClick.bind(this);
+
     this.root = document.createElement('div');
     this.root.className = 'screen';
     this.root.innerHTML = `
@@ -25,13 +27,17 @@ export class HowToPlayScene {
   mount() {
     this.overlayRoot.appendChild(this.root);
     this.root.classList.add('is-active');
-    this.root.querySelector('#btn-back-to-title').addEventListener('click', () => {
-      soundManager.play('click');
-      this.onBackToTitle();
-    });
+    this.backButton = this.root.querySelector('#btn-back-to-title');
+    this.backButton.addEventListener('click', this._handleBackClick);
   }
 
   unmount() {
+    this.backButton.removeEventListener('click', this._handleBackClick);
     this.root.remove();
+  }
+
+  _handleBackClick() {
+    soundManager.play('click');
+    this.onBackToTitle();
   }
 }
