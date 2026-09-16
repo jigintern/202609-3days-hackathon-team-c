@@ -347,27 +347,29 @@ body {
   width: 0.6em;
 }
 
-/* まだ棒の上に残っている＝まだ靄が残っている文字。もやっとした背景の
-   チップの中に文字を置き、「まだ片付いていない」ことを視覚的に示す */
+/* まだ棒の上に残っている＝まだ靄が残っている文字。壁の中でまだもやに
+   包まれたまま＝読みにくい状態として、色褪せ・取り消し線で表す。
+   一斉に動かさず animation-delay (--haze-delay) を文字ごとにずらすことで、
+   一気にではなく「じわじわ靄がかかっていく」見た目にしつつ、同時に動く
+   要素の数を減らして軽くする */
 .result-char.is-intact {
+  color: #8a7c6c;
+  text-decoration: line-through;
+  text-decoration-color: rgba(217, 43, 43, 0.55);
+  text-decoration-thickness: 2px;
+  animation: result-char-haze 0.5s ease-in var(--haze-delay, 0s) both;
+}
+
+/* 粉砕済みの文字。もやから切り離された1片として、はっきり読める
+   チップの中に置く。「ここは片付いた」ことを視覚的に示す */
+.result-char.is-crushed {
   color: #fdf6ec;
   background: rgba(142, 168, 199, 0.28);
   border-radius: 4px;
   padding: 0 1px;
 }
 
-/* 粉砕済みの文字。崩れて色褪せ、読みにくくなった状態で静止させる。
-   一斉に動かさず animation-delay (--crush-delay) を文字ごとにずらすことで、
-   「順に崩れていく」見た目にしつつ、同時に動く要素の数を減らして軽くする */
-.result-char.is-crushed {
-  color: #8a7c6c;
-  text-decoration: line-through;
-  text-decoration-color: rgba(217, 43, 43, 0.55);
-  text-decoration-thickness: 2px;
-  animation: result-char-crush 0.5s ease-in var(--crush-delay, 0s) both;
-}
-
-@keyframes result-char-crush {
+@keyframes result-char-haze {
   0% {
     transform: translateY(0) rotate(0deg) scale(1);
     opacity: 1;

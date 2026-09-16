@@ -1,9 +1,9 @@
 import { soundManager } from '../audio/SoundManager.js';
 
-// 1文字ごとの崩れ演出をずらすときの、ずらし幅の周期。これより長い連続した
-// 粉砕文字があっても、遅延が延々と伸び続けないようここで折り返す
-const CRUSH_DELAY_CYCLE = 24;
-const CRUSH_DELAY_STEP_SECONDS = 0.03;
+// 1文字ごとの「まだ靄が残っている」演出をずらすときの、ずらし幅の周期。
+// これより長く残った文字が連続しても、遅延が延々と伸び続けないようここで折り返す
+const HAZE_DELAY_CYCLE = 24;
+const HAZE_DELAY_STEP_SECONDS = 0.03;
 
 // リザルト画面。リトライ / タイトルへ戻るボタン。
 // スコアは持たない（このゲームは点数を競う遊びではないため）。
@@ -86,7 +86,7 @@ export class ResultScene {
     mailEl.innerHTML = '';
 
     const chars = Array.from(this.mailText);
-    let crushDelayIndex = 0;
+    let hazeDelayIndex = 0;
 
     for (let i = 0; i < chars.length; i += 1) {
       const character = chars[i];
@@ -105,12 +105,12 @@ export class ResultScene {
         span.classList.add('is-space');
       } else if (this.crushedIndices.has(i)) {
         span.classList.add('is-crushed');
-        const delay =
-          (crushDelayIndex % CRUSH_DELAY_CYCLE) * CRUSH_DELAY_STEP_SECONDS;
-        span.style.setProperty('--crush-delay', `${delay}s`);
-        crushDelayIndex += 1;
       } else {
         span.classList.add('is-intact');
+        const delay =
+          (hazeDelayIndex % HAZE_DELAY_CYCLE) * HAZE_DELAY_STEP_SECONDS;
+        span.style.setProperty('--haze-delay', `${delay}s`);
+        hazeDelayIndex += 1;
       }
 
       mailEl.appendChild(span);
