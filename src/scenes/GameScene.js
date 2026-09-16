@@ -116,21 +116,27 @@ const BOMB_WORDS = [
 const EXPLOSION_RADIUS = 6.0;
 const EXPLOSION_IMPULSE = 30;
 
-// 爆発に合わせてカメラを揺らす量（m）と、揺れが収まるまでの時間（秒）。
-// 揺れ幅は基準カメラ距離での見え方に合わせてあり、文字数が多くてカメラが
-// 引いているときは cameraDistanceScale を掛けて見かけの揺れを揃える。
-// 基準距離(28m)では画面に高さ約26mぶんが映るので、1.5mは画面高の約6%にあたる
-const EXPLOSION_SHAKE_AMPLITUDE = 1.5;
-const EXPLOSION_SHAKE_DURATION = 0.4;
+// 衝撃に合わせてカメラを揺らす量（m）と、揺れが収まるまでの時間（秒）。
+// 揺れはカメラごとの平行移動なので、この振幅がそのまま画面上の移動量になる。
+// 基準距離(28m)では画面に高さ約26mぶんが映るので、2.6mは画面高の約10%にあたる。
+// 文字数が多くてカメラが引いているときは cameraDistanceScale を掛けて、
+// 画面上の見かけの揺れ幅を揃える
+const EXPLOSION_SHAKE_AMPLITUDE = 2.6;
+const EXPLOSION_SHAKE_DURATION = 0.45;
 
 // 球がブロックへ命中したときの揺れ。爆発の半分の強さ・短めの時間にして、
 // 当たった手応えは出しつつ爆発の一撃とは区別する。
 // 揺らすのは1投につき一度だけ。球はブロックのあいだで何度も跳ねるため、
 // 当たるたびに揺らすと揺れっぱなしになってブロックのメール本文が読めなくなる
-const HIT_SHAKE_AMPLITUDE = 0.75;
+const HIT_SHAKE_AMPLITUDE = 1.3;
 const HIT_SHAKE_DURATION = 0.3;
 // これ未満の衝突は「かすった」だけとみなし、1投ぶんの揺れを使わない（m/s）
 const HIT_SHAKE_MIN_SPEED = 8;
+
+// 揺れに混ぜる画面の傾き。平行移動だけより一撃が硬く感じられる。
+// これは EXPLOSION_SHAKE_AMPLITUDE の揺れでの最大値で、弱い揺れでは比例して小さくなる。
+// 角度なのでカメラ距離には依らない（cameraDistanceScale を掛けない）
+const SHAKE_MAX_ROLL = THREE.MathUtils.degToRad(2);
 
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
@@ -156,6 +162,8 @@ export class GameScene {
     this.cameraShakeTime = 0;
     this.cameraShakeDuration = 0;
     this.cameraShakeAmplitude = 0;
+    // 揺れているあいだの注視点を組み立てる作業用。毎フレーム生成しないよう使い回す
+    this.shakeLookAt = new THREE.Vector3();
     // MailInputScene経由で渡された文章。未設定(null)ならランダム文面にフォールバックする
     this.mailText = null;
     // 同じ文字のブロックでテクスチャを使い回すためのキャッシュ（文字 -> CanvasTexture）。
@@ -768,19 +776,36 @@ export class GameScene {
     return this.cameraShakeAmplitude * (1 - progress) ** 2;
   }
 
-  // 衝撃をカメラの揺れで伝える。周波数の違う2つの振動を縦横に当てる。
-  // 揺らすのは位置だけで注視点は動かさないので、壁は画面内に留まる
+  // 衝撃をカメラの揺れで伝える。周波数の違う2つの振動を縦横に当て、
+  // さらに周期の違う傾きを重ねて一撃を硬くする。
+  //
+  // 大事なのはカメラと注視点を「同じだけ」ずらす点。位置だけ動かして注視点を
+  // 固定すると、注視点と同じ奥行きにある壁は画面上でほとんど動かず（壁の端が
+  // わずかに流れるだけで）、揺れがほとんど伝わらない。見せたいのは壁が画面内で
+  // 揺れる絵なので、カメラごと平行移動させる
   _updateCameraShake(deltaSeconds) {
     if (this.cameraShakeTime >= this.cameraShakeDuration) return;
 
     this.cameraShakeTime += deltaSeconds;
-    const amplitude = this._currentShakeAmplitude() * this.cameraDistanceScale;
+    const shake = this._currentShakeAmplitude();
+    const amplitude = shake * this.cameraDistanceScale;
 
     const time = this.cameraShakeTime;
+    const offsetX = Math.sin(time * 54) * amplitude;
+    const offsetY = Math.sin(time * 43 + 1.7) * amplitude * 0.8;
+
     this.camera.position.copy(this.cameraBasePosition);
-    this.camera.position.x += Math.sin(time * 54) * amplitude;
-    this.camera.position.y += Math.sin(time * 43 + 1.7) * amplitude * 0.8;
-    this.camera.lookAt(this.cameraLookAt);
+    this.camera.position.x += offsetX;
+    this.camera.position.y += offsetY;
+
+    this.shakeLookAt.copy(this.cameraLookAt);
+    this.shakeLookAt.x += offsetX;
+    this.shakeLookAt.y += offsetY;
+    this.camera.lookAt(this.shakeLookAt);
+
+    // lookAt() が姿勢を作り直した後に、視線を軸として画面を傾ける
+    const rollRatio = Math.min(1, shake / EXPLOSION_SHAKE_AMPLITUDE);
+    this.camera.rotateZ(Math.sin(time * 31 + 0.8) * SHAKE_MAX_ROLL * rollRatio);
   }
 
   // 回収用の床まで落ちたブロックを破棄する。床のcollideイベントが主で、
