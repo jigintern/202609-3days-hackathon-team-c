@@ -202,6 +202,48 @@ body {
   }
 }
 
+/* 音のオン/オフ切り替え。全画面共通で右下に固定表示するため、
+   HUDの残り球数表示(top:16/right:16)ともパワーゲージ(bottom:32中央)とも重ならない位置に置く */
+.sound-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  width: 48px;
+  height: 48px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-size: 1.4rem;
+  line-height: 48px;
+  background: linear-gradient(180deg, #4a5568, #2d3341);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #1a1e26;
+  pointer-events: auto;
+  transition: transform 0.1s ease;
+}
+
+.sound-toggle:hover {
+  transform: translateY(-2px);
+}
+
+.sound-toggle:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #1a1e26;
+}
+
+.sound-toggle.is-muted {
+  background: linear-gradient(180deg, #ff5a5a, #d92b2b);
+  box-shadow: 0 4px 0 #8f1c1c;
+}
+
+.sound-toggle.is-muted:active {
+  box-shadow: 0 1px 0 #8f1c1c;
+}
+
 /* ゲーム画面のHUD */
 #hud {
   position: absolute;
