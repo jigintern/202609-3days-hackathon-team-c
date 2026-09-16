@@ -202,6 +202,193 @@ body {
   }
 }
 
+/* 設定メニュー(歯車ボタン)。全画面共通で右下に固定表示するため、
+   HUDの残り球数表示(top:16/right:16)ともパワーゲージ(bottom:32中央)とも重ならない位置に置く */
+.settings-widget {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.settings-toggle {
+  width: 48px;
+  height: 48px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  font-size: 1.4rem;
+  line-height: 48px;
+  background: linear-gradient(180deg, #4a5568, #2d3341);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #1a1e26;
+  transition: transform 0.1s ease;
+}
+
+.settings-toggle:hover {
+  transform: translateY(-2px);
+}
+
+.settings-toggle:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #1a1e26;
+}
+
+.settings-panel {
+  position: absolute;
+  right: 0;
+  bottom: 60px;
+  width: 220px;
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(26, 30, 38, 0.95);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.settings-panel.is-open {
+  display: flex;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-mute-btn {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: linear-gradient(180deg, #4a5568, #2d3341);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #1a1e26;
+  transition: transform 0.1s ease;
+}
+
+.settings-mute-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #1a1e26;
+}
+
+.settings-mute-btn.is-muted {
+  background: linear-gradient(180deg, #ff5a5a, #d92b2b);
+  box-shadow: 0 3px 0 #8f1c1c;
+}
+
+.settings-mute-btn.is-muted:active {
+  box-shadow: 0 1px 0 #8f1c1c;
+}
+
+.settings-volume-label {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  color: #fff8e7;
+}
+
+.settings-volume-slider {
+  flex: 1;
+  accent-color: #4b8bff;
+}
+
+.settings-back-btn {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  background: linear-gradient(180deg, #4b8bff, #1d4ed8);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #123a8f;
+  transition: transform 0.1s ease;
+}
+
+.settings-back-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #123a8f;
+}
+
+/* 「スタート画面に戻る」の確認ダイアログ。画面全体を覆い、誤操作で
+   進行中のプレイを失わないようにする */
+.settings-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.settings-confirm-overlay.is-open {
+  display: flex;
+}
+
+.settings-confirm-dialog {
+  width: min(85vw, 320px);
+  padding: 24px;
+  border-radius: 12px;
+  background: #1a1e26;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.settings-confirm-message {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  color: #fff8e7;
+}
+
+.settings-confirm-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-confirm-yes,
+.settings-confirm-no {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.settings-confirm-yes {
+  background: linear-gradient(180deg, #ff5a5a, #d92b2b);
+  color: #fff;
+  box-shadow: 0 3px 0 #8f1c1c;
+}
+
+.settings-confirm-yes:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #8f1c1c;
+}
+
+.settings-confirm-no {
+  background: linear-gradient(180deg, #4a5568, #2d3341);
+  color: #fff;
+  box-shadow: 0 3px 0 #1a1e26;
+}
+
+.settings-confirm-no:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #1a1e26;
+}
+
 /* ゲーム画面のHUD */
 #hud {
   position: absolute;
@@ -342,4 +529,127 @@ body {
   font-size: 2rem;
   color: #fdf6ec;
   text-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* リザルト画面の背景は、球を撃ち切った直後のゲーム画面のスナップショット
+   （JS側で background-image をインラインで設定する）。.screen の既定の
+   暗い単色オーバーレイのままだと背景が見えなくなるので、ここだけ薄い色に
+   落とし、パネル自体の背景（下記）で文字のコントラストを確保する */
+.result-screen {
+  background-color: rgba(10, 12, 24, 0.35);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* リザルト画面。本文（最大100文字）＋文言＋ボタン2つを縦画面に収めるため、
+   パネル自体をビューポート高の90%までに抑え、本文だけを内側でスクロールさせる */
+.result-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: min(92vw, 480px);
+  max-height: 90vh;
+  padding: 28px 24px;
+  border-radius: 20px;
+  background: rgba(8, 14, 20, 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.result-panel h1 {
+  font-size: 1.8rem;
+  margin: 0;
+}
+
+.result-summary {
+  margin: 0;
+  max-width: none;
+  font-size: 1rem;
+  color: #cfd2e8;
+}
+
+.result-mail {
+  width: 100%;
+  max-height: 42vh;
+  overflow-y: auto;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 1.05rem;
+  line-height: 2.1;
+  text-align: left;
+  word-break: break-all;
+}
+
+.result-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.result-char {
+  display: inline-block;
+}
+
+.result-char.is-space {
+  width: 0.6em;
+}
+
+/* まだ棒の上に残っている＝まだ靄が残っている文字。壁の中でまだもやに
+   包まれたまま＝読みにくい状態として、色褪せ・取り消し線で表す。
+   一斉に動かさず animation-delay (--haze-delay) を文字ごとにずらすことで、
+   一気にではなく「じわじわ靄がかかっていく」見た目にしつつ、同時に動く
+   要素の数を減らして軽くする */
+.result-char.is-intact {
+  color: #8a7c6c;
+  text-decoration: line-through;
+  text-decoration-color: rgba(217, 43, 43, 0.55);
+  text-decoration-thickness: 2px;
+  animation: result-char-haze 0.5s ease-in var(--haze-delay, 0s) both;
+}
+
+/* 粉砕済みの文字。もやから切り離された1片として、はっきり読める
+   チップの中に置く。「ここは片付いた」ことを視覚的に示す */
+.result-char.is-crushed {
+  color: #fdf6ec;
+  background: rgba(142, 168, 199, 0.28);
+  border-radius: 4px;
+  padding: 0 1px;
+}
+
+@keyframes result-char-haze {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  55% {
+    transform: translateY(5px) rotate(10deg) scale(0.85);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(1px) rotate(-6deg) scale(0.8);
+    opacity: 0.4;
+  }
+}
+
+/* 全部粉砕したときの特別な演出。見出しをオレンジのグローで脈打たせて
+   「やりきった感」を強く出す */
+.result-screen.is-complete .result-panel {
+  animation: result-complete-pulse 1.6s ease-in-out infinite;
+}
+
+.result-screen.is-complete #result-heading {
+  color: #ffb703;
+}
+
+@keyframes result-complete-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(255, 183, 3, 0);
+  }
+  50% {
+    box-shadow: 0 0 28px 4px rgba(255, 183, 3, 0.45);
+  }
 }

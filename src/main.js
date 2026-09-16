@@ -6,6 +6,7 @@ import { HowToPlayScene } from './scenes/HowToPlayScene.js';
 import { GameScene } from './scenes/GameScene.js';
 import { ResultScene } from './scenes/ResultScene.js';
 import { soundManager } from './audio/SoundManager.js';
+import { SettingsMenu } from './ui/SettingsMenu.js';
 
 // 画面遷移の状態。文字列定数で管理するシンプルなステートマシン
 // TITLE →「スタート」→ MAIL_INPUT →「ゲーム開始」→ GAME という流れ
@@ -23,6 +24,8 @@ class App {
     this.overlayRoot = document.getElementById('overlay-root');
     this.currentScene = null;
     this.currentScreen = null;
+    // リザルト画面の「もう一度」で同じメール文面を再利用するために保持する
+    this._lastMailText = null;
 
     // 画面をまたいで使い回す唯一のWebGLRenderer。画面ごとに作り直すとcanvasの
     // コンテキストが競合するため、ここで一度だけ生成する
@@ -51,20 +54,25 @@ class App {
       }),
       [SCREEN.HOWTO]: new HowToPlayScene({
         overlayRoot: this.overlayRoot,
-        onSkip: () => this.goTo(SCREEN.GAME),
+        onBackToTitle: () => this.goTo(SCREEN.TITLE),
       }),
       [SCREEN.GAME]: new GameScene({
         canvas: this.canvas,
         renderer: this.renderer,
         overlayRoot: this.overlayRoot,
-        onGameOver: (score) => this.goTo(SCREEN.RESULT, { score }),
+        onGameOver: (result) => this.goTo(SCREEN.RESULT, result),
       }),
       [SCREEN.RESULT]: new ResultScene({
         overlayRoot: this.overlayRoot,
-        onRetry: () => this.goTo(SCREEN.GAME),
+        onRetry: () => this.goTo(SCREEN.GAME, { mailText: this._lastMailText }),
         onBackToTitle: () => this.goTo(SCREEN.TITLE),
       }),
     };
+
+    // 画面遷移(goTo)の対象外にするため、シーンの登録とは別に一度だけ生成する
+    this.settingsMenu = new SettingsMenu(this.overlayRoot, {
+      onBackToTitle: () => this.goTo(SCREEN.TITLE),
+    });
 
     this._lastTime = performance.now();
     this._tick = this._tick.bind(this);
@@ -79,12 +87,18 @@ class App {
     }
 
     if (screen === SCREEN.RESULT) {
-      this.scenes[SCREEN.RESULT].setScore(payload.score ?? 0);
+      this.scenes[SCREEN.RESULT].setResult(
+        payload.mailText ?? '',
+        payload.crushedIndices ?? new Set(),
+        payload.totalCrushableChars ?? 0,
+        payload.backgroundImage ?? ''
+      );
     }
     if (screen === SCREEN.GAME) {
       // MAIL_INPUTを経由しなかった場合（遊び方からのスキップ等）はnullとなり、
       // GameScene側で従来のランダム文面フォールバックに切り替わる
-      this.scenes[SCREEN.GAME].setMailText(payload.mailText ?? null);
+      this._lastMailText = payload.mailText ?? null;
+      this.scenes[SCREEN.GAME].setMailText(this._lastMailText);
       soundManager.playBgm('game');
     }
 

@@ -1,10 +1,12 @@
 import { soundManager } from '../audio/SoundManager.js';
 
-// 遊び方説明画面。操作方法テキストとスキップボタンのみ
+// 遊び方説明画面。操作方法テキストとタイトルへ戻るボタンのみ
 export class HowToPlayScene {
-  constructor({ overlayRoot, onSkip }) {
+  constructor({ overlayRoot, onBackToTitle }) {
     this.overlayRoot = overlayRoot;
-    this.onSkip = onSkip;
+    this.onBackToTitle = onBackToTitle;
+
+    this._handleBackClick = this._handleBackClick.bind(this);
 
     this.root = document.createElement('div');
     this.root.className = 'screen howto-screen';
@@ -18,7 +20,7 @@ export class HowToPlayScene {
           棒の上のメールブロックを鉄球で落としていこう。<br />
           棒の上を空にするか、球を全部使い切るとゲーム終了。
         </p>
-        <button class="btn btn-primary" id="btn-skip">はじめる</button>
+        <button class="btn btn-secondary" id="btn-back-to-title">タイトルへ戻る</button>
       </div>
     `;
   }
@@ -26,13 +28,17 @@ export class HowToPlayScene {
   mount() {
     this.overlayRoot.appendChild(this.root);
     this.root.classList.add('is-active');
-    this.root.querySelector('#btn-skip').addEventListener('click', () => {
-      soundManager.play('click');
-      this.onSkip();
-    });
+    this.backButton = this.root.querySelector('#btn-back-to-title');
+    this.backButton.addEventListener('click', this._handleBackClick);
   }
 
   unmount() {
+    this.backButton.removeEventListener('click', this._handleBackClick);
     this.root.remove();
+  }
+
+  _handleBackClick() {
+    soundManager.play('click');
+    this.onBackToTitle();
   }
 }

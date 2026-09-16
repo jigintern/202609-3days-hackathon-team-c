@@ -6,12 +6,12 @@ import { Block, createCharacterTexture } from '../game/Block.js';
 import { Bar, BAR_TOP_Y, BAR_Y } from '../game/Bar.js';
 import { AimController } from '../game/AimController.js';
 import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
+import { ExplosionEffect } from '../game/ExplosionEffect.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
 import { soundManager } from '../audio/SoundManager.js';
 
 const TOTAL_BALLS = 8;
-const SCORE_PER_BLOCK = 100;
 // 発射地点。z がブロックの壁(z=0)までの距離そのもの。
 // 空中(y=6)の棒に積んだ壁は幅7.8m・高さ4.7mあり、これを縦画面に収めるにはカメラを
 // 21m以上引く必要がある。カメラを引くぶん球も届かなくなるので、発射地点と
@@ -29,9 +29,9 @@ const FLOOR_Y = -20;
 // 床に着いたとみなす高さ。床との衝突イベントが主で、これは取りこぼし用の保険
 // （落ちたブロックの上に別のブロックが重なって着地した場合など）
 const FLOOR_LANDED_Y = FLOOR_Y + 2;
-// この高さより下に落ちたら「棒から落ちた」とみなして加点する。
+// この高さより下に落ちたら「棒から落ちた（粉砕された）」とみなす。
 // 棒の上で横滑りしただけのブロックを誤って数えないよう、棒より1m下に置いてある
-const SCORE_FALL_Y = BAR_Y - 1;
+const CRUSH_FALL_Y = BAR_Y - 1;
 // 落下音を鳴らすまでの遅延。実際の着地（画面外の回収床）は数秒かかり体感が遅いため、
 // 棒から落ちた瞬間を起点に短い遅延だけ置いて鳴らす
 const LAND_SOUND_DELAY_MS = 1000;
@@ -69,9 +69,55 @@ const CAMERA_FRAME_PADDING = 1.3;
 const FOG_NEAR = 35;
 const FOG_FAR = 50;
 
+// 本文中にこれらの語が含まれていたら、その文字のブロックを爆弾にする。
+// 語を増やすときはここへ足すだけでよい。1文字だけの語も指定できる。
+//
+// 落選を告げるメールの定型句から、読み手が「あっ」と思う語を選んである。
+// 単漢字ではなく語で持たせているのは、「抽選」「見送」のように隣り合う
+// ブロックがまとまって赤くなったほうが、何が爆弾なのかを目で読み取れるため。
+// 「結果」のようにそれ自体は中立な語は、手がかりが薄れるので入れていない。
+//
+// 語どうしは範囲が重なってよい。検出はフラグを立てるだけなので、
+// 「選」と「抽選」の両方に当たっても二重には効かない。重ねて持つ意味は
+// あって、たとえば「抽」が爆弾になるのは「抽選」と続いたときだけになる
+const BOMB_WORDS = [
+  // 抽選・チケット系
+  '抽選',
+  '当選',
+  '落選',
+  '外れ',
+  '用意',
+  '希望',
+  // 選考・就活系
+  '選考',
+  '不採用',
+  '見送',
+  '内定',
+  '残念',
+  '期待',
+  '厳正',
+  '慎重',
+  '検討',
+  // 単体でも落選を連想させる字
+  '縁',
+  '祈',
+  '選',
+  '残',
+];
+
+// 爆弾が爆発したときの爆風。半径内の動的なボディを外向きに押すだけで、
+// ブロックを壊しはしない（このゲームにブロックが壊れる仕組みは無い）。
+// ブロックの質量は1.5なので、中心の力積30はおよそ20m/sの初速にあたる。
+//
+// 力積は爆心からの距離に応じて線形に弱まり、半径の外ではゼロになる。
+// つまり RADIUS は「どこまで巻き込むか」、IMPULSE は「どれだけ飛ばすか」で、
+// 見た目を変えたいときはこの2つを動かす
+const EXPLOSION_RADIUS = 6.0;
+const EXPLOSION_IMPULSE = 30;
+
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
-// 狙い/発射/スコア判定をひとつにまとめる
+// 狙い/発射/落下判定をひとつにまとめる
 export class GameScene {
   constructor({ canvas, renderer, overlayRoot, onGameOver }) {
     this.canvas = canvas;
@@ -79,11 +125,10 @@ export class GameScene {
     this.overlayRoot = overlayRoot;
     this.onGameOver = onGameOver;
 
-    this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
-    // まだ棒の上に残っていて加点していないブロック
+    // まだ棒の上に残っているブロック
     this.blocks = [];
-    // 棒から落ちて加点済みだが、まだ床に着いていない落下中のブロック
+    // 棒から落ちたが、まだ床に着いていない落下中のブロック
     this.fallingBlocks = [];
     this.activeBall = null;
     this.hasEnded = false;
@@ -95,14 +140,13 @@ export class GameScene {
   }
 
   // MailInputScene.onStartGame(mailText) から main.js を通じて渡される入力文字列を受け取る。
-  // mount()より前に呼ばれる想定（ResultScene.setScoreと同じ使い方）
+  // mount()より前に呼ばれる想定（結果を渡すsetterをmount前に呼ぶのは他の画面も同じ作法）
   setMailText(mailText) {
     this.mailText = mailText;
   }
 
   mount() {
     this.hasEnded = false;
-    this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
     this.fallingBlocks = [];
@@ -111,6 +155,9 @@ export class GameScene {
     // 回収用の床に着いたボディの置き場。床のcollideイベントから積まれ、
     // 毎フレームの _resolveLandedBlocks() で消化する
     this.landedBodies = new Set();
+    // 粉砕済み（棒から落ちた）文字の、元のメール本文でのインデックス集合。
+    // リザルト画面へそのまま渡し、本文のどこを粉砕したかを表示する
+    this.crushedIndices = new Set();
 
     this.canvas.style.display = 'block';
 
@@ -119,8 +166,9 @@ export class GameScene {
     // 呼ぶたびに結果が変わり得るため二重に呼ばない）。
     // 各行は同じ幅に揃え、足りない分は空白ブロックで埋めてあるので、
     // どの段にも必ず下の支えがある
-    const { rows, wrapWidth } = this._buildRows();
+    const { rows, positions, wrapWidth } = this._buildRows();
     this.rows = rows;
+    this.blockPositions = positions;
     this.maxCols = wrapWidth;
     this.wallWidth = this.maxCols * BLOCK_WIDTH;
     this.wallHeight = this.rows.length * BLOCK_HEIGHT;
@@ -132,7 +180,6 @@ export class GameScene {
 
     this.hud = new HUD(this.overlayRoot);
     this.hud.show();
-    this.hud.setScore(this.score);
     this.hud.setRemainingBalls(this.remainingBalls);
 
     this.aimController = new AimController(
@@ -142,6 +189,7 @@ export class GameScene {
       (direction, power) => this._launchBall(direction, power)
     );
     this.trajectoryPreview = new TrajectoryPreview(this.scene);
+    this.explosionEffect = new ExplosionEffect(this.scene);
 
     this._onResize = this._onResize.bind(this);
     window.addEventListener('resize', this._onResize);
@@ -151,6 +199,7 @@ export class GameScene {
     window.removeEventListener('resize', this._onResize);
     this.aimController.dispose();
     this.trajectoryPreview.dispose();
+    this.explosionEffect.dispose();
     this.hud.hide();
     this.hud.root.remove();
 
@@ -285,23 +334,90 @@ export class GameScene {
   // 壁そのものの組み方（行・列）は床に積んでいた頃と同じで、
   // 積み始める高さが棒の上面になった点だけが違う
   _setupWall() {
+    const bombFlags = this._markBombs(this.rows);
     this.rows.forEach((rowChars, row) => {
       rowChars.forEach((character, col) => {
-        this._spawnBlock(character, row, col);
+        this._spawnBlock(
+          character,
+          row,
+          col,
+          bombFlags[row][col],
+          this.blockPositions[row][col]
+        );
       });
     });
+  }
+
+  // どの位置のブロックを爆弾にするかを、rowsと同じ形のboolean配列で返す。
+  //
+  // 行に分割し終えた文字を平坦に並べ直してから語を探している。こうすると
+  // 元の本文で間にスペースが入っていた場合（空白は行分割の時点で除去済み）も、
+  // 折り返しや改行で語が行をまたいだ場合も、同じように拾える。
+  // 行をまたいだときは離れた位置の2ブロックがそれぞれ爆弾になる。
+  //
+  // 結合した文字列に対する indexOf ではなく要素単位で比較しているのは、
+  // サロゲートペア（絵文字など）で文字列上の位置と要素の添字がずれるため。
+  // 右端を埋めている空白ブロック('')は語の一部にならないので探索から外す
+  _markBombs(rows) {
+    const flat = rows.flat();
+    const flags = flat.map(() => false);
+
+    const chars = [];
+    const flatIndexes = [];
+    flat.forEach((character, index) => {
+      if (character.length === 0) return;
+      chars.push(character);
+      flatIndexes.push(index);
+    });
+
+    BOMB_WORDS.forEach((word) => {
+      const wordChars = Array.from(word);
+      if (wordChars.length === 0) return;
+      for (let i = 0; i + wordChars.length <= chars.length; i += 1) {
+        if (!wordChars.every((char, k) => chars[i + k] === char)) continue;
+        wordChars.forEach((_, k) => {
+          flags[flatIndexes[i + k]] = true;
+        });
+        i += wordChars.length - 1;
+      }
+    });
+
+    let cursor = 0;
+    return rows.map((row) => row.map(() => flags[cursor++]));
   }
 
   // 壁に積む行（文字の配列の配列）を作る。「1文字=1ブロック」の組み方を
   // ここ1箇所に集約し、メール本文が渡されなかった場合（遊び方からゲームへ
   // 直行した場合など）もランダムな文面を同じ手順で行分解する。
+  //
+  // 実際に壁として採用した文面（入力 or ランダムのフォールバック）を
+  // resolvedMailText / totalCrushableChars として控えておく。リザルト画面で
+  // 「本文のどこを粉砕したか」を復元するには、積んだブロックの元になった
+  // 文面そのものが要る
   _buildRows() {
-    const primary = this._splitIntoRows(this.mailText ?? '');
+    const source = this.mailText ?? '';
+    const primary = this._splitIntoRows(source);
     // 空白だけの入力でブロックが0個になると開始直後にゲームが終わってしまうため、
     // 行が1つも残らなければランダム文面に退避する
-    return primary.rows.length > 0
-      ? primary
-      : this._splitIntoRows(getRandomEmailText());
+    if (primary.rows.length > 0) {
+      this.resolvedMailText = source;
+      this.totalCrushableChars = this._countCrushableChars(primary.positions);
+      return primary;
+    }
+    const fallback = getRandomEmailText();
+    const fallbackRows = this._splitIntoRows(fallback);
+    this.resolvedMailText = fallback;
+    this.totalCrushableChars = this._countCrushableChars(fallbackRows.positions);
+    return fallbackRows;
+  }
+
+  // positions（rowsと同じ形の、元の本文でのインデックスかnullの配列）のうち、
+  // 実際にブロックになった（=nullではない）ものの数を数える
+  _countCrushableChars(positions) {
+    return positions.reduce(
+      (sum, row) => sum + row.filter((index) => index !== null).length,
+      0
+    );
   }
 
   // 行の組み方をここ1箇所に集約している。
@@ -316,6 +432,12 @@ export class GameScene {
   //   短い行の上に長い行が乗ったときに支えのないオーバーハングができて
   //   自重で崩れてしまうため、必ず全行同じ列数・左詰めで配置する
   // - MAX_MAIL_BLOCKS を超える入力は先頭から切り詰める（空白ブロックは数えない）
+  //
+  // 各文字には元のtext（Array.from基準）でのインデックスを持たせ、rowsと
+  // 同じ形のpositionsとして返す。空白パディングのぶんはnullになる。
+  // リザルト画面で本文を復元するには「空白除去後の配列でのインデックス」ではなく
+  // 「元のtextでの位置」が要るため、改行・空白を読み飛ばす間もインデックスは
+  // 元のtext基準のまま進める
   _splitIntoRows(text) {
     const totalChars = Math.min(
       MAX_MAIL_BLOCKS,
@@ -327,17 +449,37 @@ export class GameScene {
       Math.ceil(totalChars / MAX_ROWS)
     );
 
+    const fullChars = Array.from(text);
+    const lines = [];
+    let currentLine = [];
+    for (let i = 0; i < fullChars.length; ) {
+      const character = fullChars[i];
+      if (character === '\r' || character === '\n') {
+        lines.push(currentLine);
+        currentLine = [];
+        // \r\n はまとめて1つの改行として扱う（textの分割規則を\r|\n|\r\nに揃える）
+        i += character === '\r' && fullChars[i + 1] === '\n' ? 2 : 1;
+        continue;
+      }
+      if (/\s/.test(character)) {
+        i += 1;
+        continue;
+      }
+      currentLine.push({ character, index: i });
+      i += 1;
+    }
+    lines.push(currentLine);
+
     const rows = [];
+    const positions = [];
     let remaining = MAX_MAIL_BLOCKS;
 
-    outer: for (const line of text.split(/\r\n|\r|\n/)) {
-      const lineChars = Array.from(line.replace(/\s+/g, ''));
-      for (let start = 0; start < lineChars.length; start += wrapWidth) {
+    outer: for (const line of lines) {
+      for (let start = 0; start < line.length; start += wrapWidth) {
         if (remaining <= 0) break outer;
-        const chunk = lineChars
-          .slice(start, start + wrapWidth)
-          .slice(0, remaining);
-        rows.push(chunk);
+        const chunk = line.slice(start, start + wrapWidth).slice(0, remaining);
+        rows.push(chunk.map((cell) => cell.character));
+        positions.push(chunk.map((cell) => cell.index));
         remaining -= chunk.length;
       }
     }
@@ -349,26 +491,37 @@ export class GameScene {
       }
       return padded;
     });
+    const paddedPositions = positions.map((row) => {
+      const padded = row.slice();
+      while (padded.length < wrapWidth) {
+        padded.push(null);
+      }
+      return padded;
+    });
 
-    return { rows: paddedRows, wrapWidth };
+    return { rows: paddedRows, positions: paddedPositions, wrapWidth };
   }
 
   // 同じ文字は同じテクスチャを使い回す。ブロック数ぶん毎回描き直す必要はなく、
   // 「の」「ご」のように頻出する文字ほど効く
-  _getCharacterTexture(character) {
-    let texture = this.characterTextures.get(character);
+  _getCharacterTexture(character, isBomb) {
+    // 同じ文字でも爆弾かどうかで配色が違う。文字だけをキーにすると、
+    // 先に作られた方の色がもう一方にも使い回されてしまうので種別を混ぜる
+    const key = `${isBomb ? 'bomb' : 'normal'}:${character}`;
+    let texture = this.characterTextures.get(key);
     if (!texture) {
-      texture = createCharacterTexture(character);
-      this.characterTextures.set(character, texture);
+      texture = createCharacterTexture(character, { isBomb });
+      this.characterTextures.set(key, texture);
     }
     return texture;
   }
 
-  _spawnBlock(character, row, col) {
+  _spawnBlock(character, row, col, isBomb, sourceIndex) {
     const block = new Block(
       this.physicsWorld,
       this.material,
-      this._getCharacterTexture(character)
+      this._getCharacterTexture(character, isBomb),
+      { isBomb, sourceIndex }
     );
     this.scene.add(block.mesh);
 
@@ -435,23 +588,58 @@ export class GameScene {
     this.fallingBlocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
 
+    this._resolveBombs();
     this._resolveFallenBlocks();
     this._resolveLandedBlocks();
     this._resolveActiveBall(deltaSeconds);
+    this.explosionEffect.update(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
   }
 
-  // 棒より下へ落ちたブロックを見つけて加点する。ブロックは壊れないので、
-  // 得点手段はこの「落とす」だけ。加点したブロックは fallingBlocks へ移し、
-  // 二重に数えないようにする
+  // 棒から取り除かれた（落ちた／爆発した）ブロックの元の文字位置を記録する。
+  // 行を揃えるための空白パディングのブロックはsourceIndexを持たないので、
+  // ここには入らない＝粉砕数に数えない
+  _markCrushed(block) {
+    if (block.sourceIndex !== null) {
+      this.crushedIndices.add(block.sourceIndex);
+    }
+  }
+
+  // 球が当たった爆弾を爆発させる。爆弾自身はその場で消え、棒から落ちたときと
+  // 同じように扱う。ブロックが壊れる仕組みは無いので、爆風は周囲のブロックを
+  // 棒から吹き飛ばして落とすことで効いてくる
+  _resolveBombs() {
+    const remaining = [];
+    const origins = [];
+
+    this.blocks.forEach((block) => {
+      if (!block.hitByBall) {
+        remaining.push(block);
+        return;
+      }
+      origins.push(block.body.position.clone());
+      this._markCrushed(block);
+      this.scene.remove(block.mesh);
+      block.dispose();
+    });
+
+    if (origins.length === 0) return;
+
+    this.blocks = remaining;
+    // 爆風は爆弾を取り除いたあとに当てる。自分自身を吹き飛ばそうとしないため
+    origins.forEach((origin) => this._explode(origin));
+  }
+
+  // 棒より下へ落ちたブロックを見つけて fallingBlocks へ移す。ブロックは壊れないので、
+  // 「落とす」ことだけが棒から取り除く手段。二重に数えないよう、移した後は
+  // blocks 側から除く
   _resolveFallenBlocks() {
     const remaining = [];
     this.blocks.forEach((block) => {
-      if (block.body.position.y < SCORE_FALL_Y) {
-        this.score += SCORE_PER_BLOCK;
-        this.hud.setScore(this.score);
+      if (block.body.position.y < CRUSH_FALL_Y) {
+        this._markCrushed(block);
         this.fallingBlocks.push(block);
         // 実際に画面外の回収床へ着地するまで待つと数秒かかり体感が遅いため、
         // 棒から落ちた時点を起点に一定時間後の「着地したはず」のタイミングで鳴らす
@@ -468,6 +656,38 @@ export class GameScene {
     }
 
     this.blocks = remaining;
+  }
+
+  // 爆心から半径内にある動的なボディ（ブロックと、飛んでいる球の両方）を
+  // 外向きに吹き飛ばす。力は距離に応じて線形に弱まり、外周でゼロになる。
+  // 間に何があるかは見ていない（遮蔽判定は入れていない）。
+  //
+  // 爆弾の引き金は球との衝突だけなので、この爆風が他の爆弾を誘爆させることはない。
+  // ただし爆風で弾かれた球が別の爆弾に当たれば、そちらは普通に爆発する
+  _explode(origin) {
+    this.explosionEffect.spawnAt(origin, EXPLOSION_RADIUS);
+
+    const targets = [...this.blocks, this.activeBall].filter(Boolean);
+
+    targets.forEach((target) => {
+      const { body } = target;
+      const offset = new CANNON.Vec3(
+        body.position.x - origin.x,
+        body.position.y - origin.y,
+        body.position.z - origin.z
+      );
+      const distance = offset.length();
+      if (distance > EXPLOSION_RADIUS) return;
+
+      // 爆心とまったく同じ位置にいると向きが決まらないので、その時だけ真上へ逃がす
+      const direction =
+        distance > 1e-4 ? offset.scale(1 / distance) : new CANNON.Vec3(0, 1, 0);
+      const strength = EXPLOSION_IMPULSE * (1 - distance / EXPLOSION_RADIUS);
+
+      // スリープ中のブロックは力を加えても起きないので先に起こす
+      body.wakeUp();
+      body.applyImpulse(direction.scale(strength));
+    });
   }
 
   // 回収用の床まで落ちたブロックを破棄する。床のcollideイベントが主で、
@@ -508,7 +728,19 @@ export class GameScene {
     if (cleared || outOfAmmo) {
       this.hasEnded = true;
       soundManager.play('gameover');
-      this.onGameOver(this.score);
+      // リザルト画面の背景に「球を撃ち切った直後のゲーム画面」をそのまま
+      // 使うため、シーンが破棄される前にここでスナップショットを撮る。
+      // rendererにpreserveDrawingBufferを立てていないため、直前の描画から
+      // 時間が経つとバッファが失われている恐れがある。撮る直前にもう一度
+      // 描画しておくことで、このタイミングの見た目を確実に残す
+      this.renderer.render(this.scene, this.camera);
+      const backgroundImage = this.canvas.toDataURL('image/jpeg', 0.85);
+      this.onGameOver({
+        mailText: this.resolvedMailText,
+        crushedIndices: this.crushedIndices,
+        totalCrushableChars: this.totalCrushableChars,
+        backgroundImage,
+      });
     }
   }
 
