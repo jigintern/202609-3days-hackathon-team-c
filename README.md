@@ -235,8 +235,8 @@ TITLE → 「スタート」 → MAIL_INPUT → 「ゲーム開始」 → GAME
 - ゲーム終了時（`GameScene._checkGameOver()`）、実際に壁として採用した本文
   （`resolvedMailText`。入力が空でランダム文面にフォールバックした場合は
   そちらの文面）と`crushedIndices`、粉砕対象になり得た総文字数
-  （`totalCrushableChars`）を`onGameOver()`経由で渡す。`main.js`の
-  `App.goTo()`がこれを`ResultScene.setResult()`へ橋渡しする
+  （`totalCrushableChars`）、後述の背景スナップショットを`onGameOver()`経由で
+  渡す。`main.js`の`App.goTo()`がこれを`ResultScene.setResult()`へ橋渡しする
   （`GameScene.setMailText()`と同じ「mount前にsetterで値を渡す」パターン）。
 - `ResultScene._renderMail()`が本文を1文字ずつ`span`に分解して描画する。
   改行は`GameScene._splitIntoRows()`と同じ規則（`\r\n`はまとめて1つ、単独の
@@ -259,6 +259,16 @@ TITLE → 「スタート」 → MAIL_INPUT → 「ゲーム開始」 → GAME
   `.result-panel`自体をビューポート高の90%までに抑え、本文の`.result-mail`
   だけを内側で`overflow-y: auto`にしてスクロールさせる。ボタンが画面外に
   出ないことをiPhone相当の390×844の画面幅で確認済み。
+- **背景は単色の暗いオーバーレイではなく、球を撃ち切った直後のゲーム画面**
+  （棒の上に残った壁と落とした跡）をそのまま使っている。`GameScene`は
+  シーンが破棄される前に一度だけ`this.renderer.render()`を呼び直してから
+  `this.canvas.toDataURL('image/jpeg', 0.85)`でスナップショットを撮り、
+  `backgroundImage`として渡す（rendererに`preserveDrawingBuffer`を立てて
+  いないため、直前に描画し直さないと撮る時点で描画バッファが失われている
+  ことがある）。`ResultScene`はこれを`.result-screen`の`background-image`に
+  設定し、下地の単色は文字のコントラストを保つための薄い暗色（`rgba(10, 12,
+  24, 0.35)`）にとどめている。パネル自体は別途不透明度のある背景を持つため、
+  本文の可読性はそちらで確保している。
 
 ## ブロックの文字表示
 
