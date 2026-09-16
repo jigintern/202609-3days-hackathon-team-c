@@ -6,6 +6,7 @@ import { Block, createCharacterTexture } from '../game/Block.js';
 import { Bar, BAR_TOP_Y, BAR_Y } from '../game/Bar.js';
 import { AimController } from '../game/AimController.js';
 import { TrajectoryPreview } from '../game/TrajectoryPreview.js';
+import { ExplosionEffect } from '../game/ExplosionEffect.js';
 import { HUD } from '../ui/HUD.js';
 import { getRandomEmailText } from '../data/emailTexts.js';
 import { soundManager } from '../audio/SoundManager.js';
@@ -68,6 +69,52 @@ const CAMERA_FRAME_PADDING = 1.3;
 // 比例して伸ばさないと、壁がフォグに沈んで見えなくなる
 const FOG_NEAR = 35;
 const FOG_FAR = 50;
+
+// 本文中にこれらの語が含まれていたら、その文字のブロックを爆弾にする。
+// 語を増やすときはここへ足すだけでよい。1文字だけの語も指定できる。
+//
+// 落選を告げるメールの定型句から、読み手が「あっ」と思う語を選んである。
+// 単漢字ではなく語で持たせているのは、「抽選」「見送」のように隣り合う
+// ブロックがまとまって赤くなったほうが、何が爆弾なのかを目で読み取れるため。
+// 「結果」のようにそれ自体は中立な語は、手がかりが薄れるので入れていない。
+//
+// 語どうしは範囲が重なってよい。検出はフラグを立てるだけなので、
+// 「選」と「抽選」の両方に当たっても二重には効かない。重ねて持つ意味は
+// あって、たとえば「抽」が爆弾になるのは「抽選」と続いたときだけになる
+const BOMB_WORDS = [
+  // 抽選・チケット系
+  '抽選',
+  '当選',
+  '落選',
+  '外れ',
+  '用意',
+  '希望',
+  // 選考・就活系
+  '選考',
+  '不採用',
+  '見送',
+  '内定',
+  '残念',
+  '期待',
+  '厳正',
+  '慎重',
+  '検討',
+  // 単体でも落選を連想させる字
+  '縁',
+  '祈',
+  '選',
+  '残',
+];
+
+// 爆弾が爆発したときの爆風。半径内の動的なボディを外向きに押すだけで、
+// ブロックを壊しはしない（このゲームにブロックが壊れる仕組みは無い）。
+// ブロックの質量は1.5なので、中心の力積30はおよそ20m/sの初速にあたる。
+//
+// 力積は爆心からの距離に応じて線形に弱まり、半径の外ではゼロになる。
+// つまり RADIUS は「どこまで巻き込むか」、IMPULSE は「どれだけ飛ばすか」で、
+// 見た目を変えたいときはこの2つを動かす
+const EXPLOSION_RADIUS = 6.0;
+const EXPLOSION_IMPULSE = 30;
 
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
@@ -142,6 +189,7 @@ export class GameScene {
       (direction, power) => this._launchBall(direction, power)
     );
     this.trajectoryPreview = new TrajectoryPreview(this.scene);
+    this.explosionEffect = new ExplosionEffect(this.scene);
 
     this._onResize = this._onResize.bind(this);
     window.addEventListener('resize', this._onResize);
@@ -151,6 +199,7 @@ export class GameScene {
     window.removeEventListener('resize', this._onResize);
     this.aimController.dispose();
     this.trajectoryPreview.dispose();
+    this.explosionEffect.dispose();
     this.hud.hide();
     this.hud.root.remove();
 
@@ -285,11 +334,50 @@ export class GameScene {
   // 壁そのものの組み方（行・列）は床に積んでいた頃と同じで、
   // 積み始める高さが棒の上面になった点だけが違う
   _setupWall() {
+    const bombFlags = this._markBombs(this.rows);
     this.rows.forEach((rowChars, row) => {
       rowChars.forEach((character, col) => {
-        this._spawnBlock(character, row, col);
+        this._spawnBlock(character, row, col, bombFlags[row][col]);
       });
     });
+  }
+
+  // どの位置のブロックを爆弾にするかを、rowsと同じ形のboolean配列で返す。
+  //
+  // 行に分割し終えた文字を平坦に並べ直してから語を探している。こうすると
+  // 元の本文で間にスペースが入っていた場合（空白は行分割の時点で除去済み）も、
+  // 折り返しや改行で語が行をまたいだ場合も、同じように拾える。
+  // 行をまたいだときは離れた位置の2ブロックがそれぞれ爆弾になる。
+  //
+  // 結合した文字列に対する indexOf ではなく要素単位で比較しているのは、
+  // サロゲートペア（絵文字など）で文字列上の位置と要素の添字がずれるため。
+  // 右端を埋めている空白ブロック('')は語の一部にならないので探索から外す
+  _markBombs(rows) {
+    const flat = rows.flat();
+    const flags = flat.map(() => false);
+
+    const chars = [];
+    const flatIndexes = [];
+    flat.forEach((character, index) => {
+      if (character.length === 0) return;
+      chars.push(character);
+      flatIndexes.push(index);
+    });
+
+    BOMB_WORDS.forEach((word) => {
+      const wordChars = Array.from(word);
+      if (wordChars.length === 0) return;
+      for (let i = 0; i + wordChars.length <= chars.length; i += 1) {
+        if (!wordChars.every((char, k) => chars[i + k] === char)) continue;
+        wordChars.forEach((_, k) => {
+          flags[flatIndexes[i + k]] = true;
+        });
+        i += wordChars.length - 1;
+      }
+    });
+
+    let cursor = 0;
+    return rows.map((row) => row.map(() => flags[cursor++]));
   }
 
   // 壁に積む行（文字の配列の配列）を作る。「1文字=1ブロック」の組み方を
@@ -355,20 +443,24 @@ export class GameScene {
 
   // 同じ文字は同じテクスチャを使い回す。ブロック数ぶん毎回描き直す必要はなく、
   // 「の」「ご」のように頻出する文字ほど効く
-  _getCharacterTexture(character) {
-    let texture = this.characterTextures.get(character);
+  _getCharacterTexture(character, isBomb) {
+    // 同じ文字でも爆弾かどうかで配色が違う。文字だけをキーにすると、
+    // 先に作られた方の色がもう一方にも使い回されてしまうので種別を混ぜる
+    const key = `${isBomb ? 'bomb' : 'normal'}:${character}`;
+    let texture = this.characterTextures.get(key);
     if (!texture) {
-      texture = createCharacterTexture(character);
-      this.characterTextures.set(character, texture);
+      texture = createCharacterTexture(character, { isBomb });
+      this.characterTextures.set(key, texture);
     }
     return texture;
   }
 
-  _spawnBlock(character, row, col) {
+  _spawnBlock(character, row, col, isBomb) {
     const block = new Block(
       this.physicsWorld,
       this.material,
-      this._getCharacterTexture(character)
+      this._getCharacterTexture(character, isBomb),
+      { isBomb }
     );
     this.scene.add(block.mesh);
 
@@ -435,12 +527,40 @@ export class GameScene {
     this.fallingBlocks.forEach((block) => block.syncMeshToBody());
     if (this.activeBall) this.activeBall.syncMeshToBody();
 
+    this._resolveBombs();
     this._resolveFallenBlocks();
     this._resolveLandedBlocks();
     this._resolveActiveBall(deltaSeconds);
+    this.explosionEffect.update(deltaSeconds);
     this._checkGameOver();
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // 球が当たった爆弾を爆発させる。爆弾自身はその場で消え、棒から落ちたときと
+  // 同じように加点する。ブロックが壊れる仕組みは無いので、爆風は周囲のブロックを
+  // 棒から吹き飛ばして落とすことで効いてくる
+  _resolveBombs() {
+    const remaining = [];
+    const origins = [];
+
+    this.blocks.forEach((block) => {
+      if (!block.hitByBall) {
+        remaining.push(block);
+        return;
+      }
+      origins.push(block.body.position.clone());
+      this.score += SCORE_PER_BLOCK;
+      this.hud.setScore(this.score);
+      this.scene.remove(block.mesh);
+      block.dispose();
+    });
+
+    if (origins.length === 0) return;
+
+    this.blocks = remaining;
+    // 爆風は爆弾を取り除いたあとに当てる。自分自身を吹き飛ばそうとしないため
+    origins.forEach((origin) => this._explode(origin));
   }
 
   // 棒より下へ落ちたブロックを見つけて加点する。ブロックは壊れないので、
@@ -468,6 +588,38 @@ export class GameScene {
     }
 
     this.blocks = remaining;
+  }
+
+  // 爆心から半径内にある動的なボディ（ブロックと、飛んでいる球の両方）を
+  // 外向きに吹き飛ばす。力は距離に応じて線形に弱まり、外周でゼロになる。
+  // 間に何があるかは見ていない（遮蔽判定は入れていない）。
+  //
+  // 爆弾の引き金は球との衝突だけなので、この爆風が他の爆弾を誘爆させることはない。
+  // ただし爆風で弾かれた球が別の爆弾に当たれば、そちらは普通に爆発する
+  _explode(origin) {
+    this.explosionEffect.spawnAt(origin, EXPLOSION_RADIUS);
+
+    const targets = [...this.blocks, this.activeBall].filter(Boolean);
+
+    targets.forEach((target) => {
+      const { body } = target;
+      const offset = new CANNON.Vec3(
+        body.position.x - origin.x,
+        body.position.y - origin.y,
+        body.position.z - origin.z
+      );
+      const distance = offset.length();
+      if (distance > EXPLOSION_RADIUS) return;
+
+      // 爆心とまったく同じ位置にいると向きが決まらないので、その時だけ真上へ逃がす
+      const direction =
+        distance > 1e-4 ? offset.scale(1 / distance) : new CANNON.Vec3(0, 1, 0);
+      const strength = EXPLOSION_IMPULSE * (1 - distance / EXPLOSION_RADIUS);
+
+      // スリープ中のブロックは力を加えても起きないので先に起こす
+      body.wakeUp();
+      body.applyImpulse(direction.scale(strength));
+    });
   }
 
   // 回収用の床まで落ちたブロックを破棄する。床のcollideイベントが主で、
