@@ -12,7 +12,6 @@ import { getRandomEmailText } from '../data/emailTexts.js';
 import { soundManager } from '../audio/SoundManager.js';
 
 const TOTAL_BALLS = 8;
-const SCORE_PER_BLOCK = 100;
 // 発射地点。z がブロックの壁(z=0)までの距離そのもの。
 // 空中(y=6)の棒に積んだ壁は幅7.8m・高さ4.7mあり、これを縦画面に収めるにはカメラを
 // 21m以上引く必要がある。カメラを引くぶん球も届かなくなるので、発射地点と
@@ -30,7 +29,7 @@ const FLOOR_Y = -20;
 // 床に着いたとみなす高さ。床との衝突イベントが主で、これは取りこぼし用の保険
 // （落ちたブロックの上に別のブロックが重なって着地した場合など）
 const FLOOR_LANDED_Y = FLOOR_Y + 2;
-// この高さより下に落ちたら「棒から落ちた」とみなして加点する。
+// この高さより下に落ちたら「棒から落ちた」とみなす。
 // 棒の上で横滑りしただけのブロックを誤って数えないよう、棒より1m下に置いてある
 const SCORE_FALL_Y = BAR_Y - 1;
 // 落下音を鳴らすまでの遅延。実際の着地（画面外の回収床）は数秒かかり体感が遅いため、
@@ -118,7 +117,7 @@ const EXPLOSION_IMPULSE = 30;
 
 
 // メインのゲームプレイ画面。three.jsの描画とcannon-esの物理更新、
-// 狙い/発射/スコア判定をひとつにまとめる
+// 狙い/発射/落下判定をひとつにまとめる
 export class GameScene {
   constructor({ canvas, renderer, overlayRoot, onGameOver }) {
     this.canvas = canvas;
@@ -126,11 +125,10 @@ export class GameScene {
     this.overlayRoot = overlayRoot;
     this.onGameOver = onGameOver;
 
-    this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
-    // まだ棒の上に残っていて加点していないブロック
+    // まだ棒の上に残っているブロック
     this.blocks = [];
-    // 棒から落ちて加点済みだが、まだ床に着いていない落下中のブロック
+    // 棒から落ちたが、まだ床に着いていない落下中のブロック
     this.fallingBlocks = [];
     this.activeBall = null;
     this.hasEnded = false;
@@ -142,14 +140,13 @@ export class GameScene {
   }
 
   // MailInputScene.onStartGame(mailText) から main.js を通じて渡される入力文字列を受け取る。
-  // mount()より前に呼ばれる想定（ResultScene.setScoreと同じ使い方）
+  // mount()より前に呼ばれる想定（結果を渡すsetterをmount前に呼ぶのは他の画面も同じ作法）
   setMailText(mailText) {
     this.mailText = mailText;
   }
 
   mount() {
     this.hasEnded = false;
-    this.score = 0;
     this.remainingBalls = TOTAL_BALLS;
     this.blocks = [];
     this.fallingBlocks = [];
@@ -179,7 +176,6 @@ export class GameScene {
 
     this.hud = new HUD(this.overlayRoot);
     this.hud.show();
-    this.hud.setScore(this.score);
     this.hud.setRemainingBalls(this.remainingBalls);
 
     this.aimController = new AimController(
@@ -538,7 +534,7 @@ export class GameScene {
   }
 
   // 球が当たった爆弾を爆発させる。爆弾自身はその場で消え、棒から落ちたときと
-  // 同じように加点する。ブロックが壊れる仕組みは無いので、爆風は周囲のブロックを
+  // 同じように扱う。ブロックが壊れる仕組みは無いので、爆風は周囲のブロックを
   // 棒から吹き飛ばして落とすことで効いてくる
   _resolveBombs() {
     const remaining = [];
@@ -550,8 +546,6 @@ export class GameScene {
         return;
       }
       origins.push(block.body.position.clone());
-      this.score += SCORE_PER_BLOCK;
-      this.hud.setScore(this.score);
       this.scene.remove(block.mesh);
       block.dispose();
     });
@@ -563,15 +557,13 @@ export class GameScene {
     origins.forEach((origin) => this._explode(origin));
   }
 
-  // 棒より下へ落ちたブロックを見つけて加点する。ブロックは壊れないので、
-  // 得点手段はこの「落とす」だけ。加点したブロックは fallingBlocks へ移し、
-  // 二重に数えないようにする
+  // 棒より下へ落ちたブロックを見つけて fallingBlocks へ移す。ブロックは壊れないので、
+  // 「落とす」ことだけが棒から取り除く手段。二重に数えないよう、移した後は
+  // blocks 側から除く
   _resolveFallenBlocks() {
     const remaining = [];
     this.blocks.forEach((block) => {
       if (block.body.position.y < SCORE_FALL_Y) {
-        this.score += SCORE_PER_BLOCK;
-        this.hud.setScore(this.score);
         this.fallingBlocks.push(block);
         // 実際に画面外の回収床へ着地するまで待つと数秒かかり体感が遅いため、
         // 棒から落ちた時点を起点に一定時間後の「着地したはず」のタイミングで鳴らす
@@ -660,7 +652,7 @@ export class GameScene {
     if (cleared || outOfAmmo) {
       this.hasEnded = true;
       soundManager.play('gameover');
-      this.onGameOver(this.score);
+      this.onGameOver();
     }
   }
 
