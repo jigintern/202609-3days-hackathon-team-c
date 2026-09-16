@@ -57,7 +57,7 @@ class App {
         canvas: this.canvas,
         renderer: this.renderer,
         overlayRoot: this.overlayRoot,
-        onGameOver: () => this.goTo(SCREEN.RESULT),
+        onGameOver: (result) => this.goTo(SCREEN.RESULT, result),
       }),
       [SCREEN.RESULT]: new ResultScene({
         overlayRoot: this.overlayRoot,
@@ -78,6 +78,13 @@ class App {
       soundManager.stopBgm('game');
     }
 
+    if (screen === SCREEN.RESULT) {
+      this.scenes[SCREEN.RESULT].setResult(
+        payload.mailText ?? '',
+        payload.crushedIndices ?? new Set(),
+        payload.totalCrushableChars ?? 0
+      );
+    }
     if (screen === SCREEN.GAME) {
       // MAIL_INPUTを経由しなかった場合（遊び方からのスキップ等）はnullとなり、
       // GameScene側で従来のランダム文面フォールバックに切り替わる
